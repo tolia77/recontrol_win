@@ -31,14 +31,31 @@ namespace recontrol_win.Services
             if (string.IsNullOrWhiteSpace(email)) throw new ArgumentNullException(nameof(email));
             if (string.IsNullOrWhiteSpace(password)) throw new ArgumentNullException(nameof(password));
 
-            var payload = new
+            // Determine device identifier to send: prefer provided deviceId, then stored device id, otherwise send device_name
+            var storedDeviceId = _tokenStore.GetDeviceId();
+            var effectiveDeviceId = deviceId ?? storedDeviceId;
+
+            object payload;
+            if (!string.IsNullOrWhiteSpace(effectiveDeviceId))
             {
-                email,
-                password,
-                device_id = deviceId,
-                device_name = Environment.MachineName,
-                client_type = "desktop"
-            };
+                payload = new
+                {
+                    email,
+                    password,
+                    device_id = effectiveDeviceId,
+                    client_type = "desktop"
+                };
+            }
+            else
+            {
+                payload = new
+                {
+                    email,
+                    password,
+                    device_name = Environment.MachineName,
+                    client_type = "desktop"
+                };
+            }
 
             // Use JsonContent to create application/json content
             HttpContent content = JsonContent.Create(payload, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
@@ -47,24 +64,19 @@ namespace recontrol_win.Services
 
             if (response.IsSuccessStatusCode)
             {
-                try
-                {
-                    var json = await response.Content.ReadAsStringAsync();
-                    using var doc = JsonDocument.Parse(json);
-                    var root = doc.RootElement;
 
-                    var userId = root.GetProperty("user_id").GetString() ?? string.Empty;
-                    var devId = root.GetProperty("device_id").GetString() ?? string.Empty;
-                    var access = root.GetProperty("access_token").GetString() ?? string.Empty;
-                    var refresh = root.GetProperty("refresh_token").GetString() ?? string.Empty;
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
 
-                    var tokenData = new TokenData(userId, devId, access, refresh);
-                    _tokenStore.Save(tokenData);
-                }
-                catch
-                {
-                    // ignore save errors but keep response for caller
-                }
+                var userId = root.GetProperty("user_id").GetString() ?? string.Empty;
+                var devId = root.GetProperty("device_id").GetString() ?? string.Empty;
+                var access = root.GetProperty("access_token").GetString() ?? string.Empty;
+                var refresh = root.GetProperty("refresh_token").GetString() ?? string.Empty;
+
+                var tokenData = new TokenData(userId, devId, access, refresh);
+                _tokenStore.Save(tokenData);
+
             }
 
             return response;
