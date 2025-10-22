@@ -25,6 +25,15 @@
 
         <!-- Form Fields -->
         <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,40">
+            <!-- Error label (hidden by default) -->
+            <TextBlock x:Name="ErrorLabel"
+                       Text="Invalid email or password"
+                       Foreground="Red"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,10"
+                       Visibility="Collapsed"
+                       HorizontalAlignment="Center"/>
+
             <TextBlock Text="Email" Margin="5,0,0,3" FontWeight="SemiBold"/>
             <TextBox x:Name="EmailTextBox"
                      Height="30"
@@ -44,7 +53,8 @@
                     Foreground="White"
                     FontWeight="Bold"
                     BorderThickness="0"
-                    Cursor="Hand"/>
+                    Cursor="Hand"
+                    Click="LoginButton_Click"/>
         </StackPanel>
 
         <!-- Signup link -->

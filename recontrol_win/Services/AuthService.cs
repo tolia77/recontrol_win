@@ -39,7 +39,7 @@ namespace recontrol_win.Services
             // Use JsonContent to create application/json content
             HttpContent content = JsonContent.Create(payload, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
-            return await _apiClient.PostAsync("/auth/login", content);
+            return await _apiClient.PostAsync("/auth/login", content, false);
         }
 
         /// <summary>
