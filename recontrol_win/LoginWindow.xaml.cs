@@ -23,5 +23,15 @@ namespace recontrol_win
         {
             InitializeComponent();
         }
+
+        public void SignUpLink_Click(object sender, RoutedEventArgs e)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://recontrol.app/signup",
+                UseShellExecute = true
+            });
+        }
     }
 }
+
