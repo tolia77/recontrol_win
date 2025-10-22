@@ -29,6 +29,9 @@ namespace recontrol_win
             // Hide error label initially
             ErrorLabel.Visibility = Visibility.Collapsed;
 
+            // Disable the login button while the request is in progress
+            LoginButton.IsEnabled = false;
+
             var email = EmailTextBox.Text?.Trim();
             var password = PasswordBox.Password ?? string.Empty;
 
@@ -55,6 +58,11 @@ namespace recontrol_win
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.ToString(), "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                // Re-enable the button regardless of outcome
+                LoginButton.IsEnabled = true;
             }
         }
     }
