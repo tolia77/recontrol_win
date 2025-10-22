@@ -6,9 +6,9 @@ namespace recontrol_win
     {
         private void Application_Startup(object sender, StartupEventArgs e)
         {
+            DotNetEnv.Env.Load();
             // Show login window first
             var loginWindow = new LoginWindow();
-
             // ShowDialog() blocks until the login window is closed
             bool? result = loginWindow.ShowDialog();
 
