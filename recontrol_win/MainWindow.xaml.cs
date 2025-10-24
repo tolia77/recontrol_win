@@ -44,46 +44,95 @@ namespace recontrol_win
 
         private async Task EnsureConnectedAsync()
         {
-            var token = await GetAccessTokenAsync();
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                AddMessage("system", "error", new { msg = "No access token; please login again" });
-                return;
-            }
+            // Try connect, if unauthorized attempt one token refresh and retry
+            int attempts = 0;
+            const int maxAttempts = 2;
 
-            try
+            while (attempts < maxAttempts)
             {
-                // Using clientwebsocket to be able to receive messages
-                _webSocket = new System.Net.WebSockets.ClientWebSocket();
-                var uriWithToken = new Uri($"{_wsUri}?access_token={Uri.EscapeDataString(token)}");
-                await _webSocket.ConnectAsync(uriWithToken, System.Threading.CancellationToken.None);
-                _connected = true;
-                Dispatcher.Invoke(() =>
-                {
-                    StatusText.Text = "Connected";
-                    SendPingButton.IsEnabled = true;
-                });
+                attempts++;
 
-                _ = ReceiveLoopAsync();
+                var token = await GetAccessTokenAsync();
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    AddMessage("system", "error", new { msg = "No access token; please login again" });
+                    return;
+                }
 
-                // subscribe
-                var subscribe = new
+                try
                 {
-                    command = "subscribe",
-                    identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" })
-                };
-                var bytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(subscribe));
-                await _webSocket.SendAsync(bytes, System.Net.WebSockets.WebSocketMessageType.Text, true, System.Threading.CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                AddMessage("system", "error", new { msg = ex.Message });
-                Dispatcher.Invoke(() =>
+                    // Close previous socket if any
+                    try
+                    {
+                        if (_webSocket != null)
+                        {
+                            if (_webSocket.State == System.Net.WebSockets.WebSocketState.Open || _webSocket.State == System.Net.WebSockets.WebSocketState.CloseReceived || _webSocket.State == System.Net.WebSockets.WebSocketState.CloseSent)
+                            {
+                                await _webSocket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "reconnect", System.Threading.CancellationToken.None);
+                            }
+                            _webSocket.Dispose();
+                            _webSocket = null;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+
+                    // Using ClientWebSocket to be able to receive messages
+                    _webSocket = new System.Net.WebSockets.ClientWebSocket();
+                    var uriWithToken = new Uri($"{_wsUri}?access_token={Uri.EscapeDataString(token)}");
+                    await _webSocket.ConnectAsync(uriWithToken, System.Threading.CancellationToken.None);
+
+                    _connected = true;
+                    Dispatcher.Invoke(() =>
+                    {
+                        StatusText.Text = "Connected";
+                        SendPingButton.IsEnabled = true;
+                    });
+
+                    _ = ReceiveLoopAsync();
+
+                    // subscribe
+                    var subscribe = new
+                    {
+                        command = "subscribe",
+                        identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" })
+                    };
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(subscribe));
+                    await _webSocket.SendAsync(bytes, System.Net.WebSockets.WebSocketMessageType.Text, true, System.Threading.CancellationToken.None);
+
+                    // connected and subscribed successfully; exit loop
+                    return;
+                }
+                catch (Exception ex)
                 {
-                    StatusText.Text = "Disconnected";
-                    SendPingButton.IsEnabled = false;
-                });
-                _connected = false;
+                    AddMessage("system", "error", new { msg = ex.Message });
+
+                    // If this was the first attempt, try refreshing tokens and retry
+                    if (attempts < maxAttempts)
+                    {
+                        AddMessage("system", "info", new { msg = "Attempting token refresh and retrying connection" });
+                        var refreshed = await _auth.RefreshTokensAsync();
+                        if (!refreshed)
+                        {
+                            AddMessage("system", "error", new { msg = "Token refresh failed; will not retry." });
+                            break;
+                        }
+
+                        // loop will retry
+                        continue;
+                    }
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        StatusText.Text = "Disconnected";
+                        SendPingButton.IsEnabled = false;
+                    });
+
+                    _connected = false;
+                    return;
+                }
             }
         }
 
@@ -115,13 +164,20 @@ namespace recontrol_win
                         }
                         else if (doc.RootElement.TryGetProperty("type", out var t) && t.GetString() == "reject_subscription")
                         {
-                            // token likely invalid, attempt refresh
+                            // token likely invalid, attempt refresh and reconnect
                             AddMessage("system", "info", new { msg = "Subscription rejected, attempting token refresh" });
                             var refreshed = await _auth.RefreshTokensAsync();
                             if (refreshed)
                             {
                                 await EnsureConnectedAsync();
                             }
+                            else
+                            {
+                                AddMessage("system", "error", new { msg = "Token refresh failed; please login again." });
+                            }
+
+                            // break out of receive loop after handling
+                            break;
                         }
                     }
                     catch
