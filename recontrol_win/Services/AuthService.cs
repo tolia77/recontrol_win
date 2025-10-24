@@ -18,53 +18,31 @@ namespace recontrol_win.Services
             if (string.IsNullOrWhiteSpace(baseUrl))
                 throw new InvalidOperationException("Environment variable 'API_BASE_URL' is not set.");
 
-            _apiClient = new ApiClient(baseUrl);
+            _apiClient = new ApiClient(
+                baseUrl,
+                getAccessToken: GetAccessToken,
+                refreshTokens: RefreshTokensAsync
+            );
         }
 
-        /// <summary>
-        /// Login with email, password and optional deviceId. Sends POST to /auth/login with JSON body.
-        /// On success, stores tokens via DPAPI in user AppData.
-        /// Returns the HttpResponseMessage for callers to handle (e.g. read tokens or errors).
-        /// </summary>
         public async Task<HttpResponseMessage> LoginAsync(string email, string password, string? deviceId = null)
         {
             if (string.IsNullOrWhiteSpace(email)) throw new ArgumentNullException(nameof(email));
             if (string.IsNullOrWhiteSpace(password)) throw new ArgumentNullException(nameof(password));
 
-            // Determine device identifier to send: prefer provided deviceId, then stored device id, otherwise send device_name
             var storedDeviceId = _tokenStore.GetDeviceId();
             var effectiveDeviceId = deviceId ?? storedDeviceId;
 
-            object payload;
-            if (!string.IsNullOrWhiteSpace(effectiveDeviceId))
-            {
-                payload = new
-                {
-                    email,
-                    password,
-                    device_id = effectiveDeviceId,
-                    client_type = "desktop"
-                };
-            }
-            else
-            {
-                payload = new
-                {
-                    email,
-                    password,
-                    device_name = Environment.MachineName,
-                    client_type = "desktop"
-                };
-            }
+            object payload = !string.IsNullOrWhiteSpace(effectiveDeviceId)
+                ? new { email, password, device_id = effectiveDeviceId, client_type = "desktop" }
+                : new { email, password, device_name = Environment.MachineName, client_type = "desktop" };
 
-            // Use JsonContent to create application/json content
             HttpContent content = JsonContent.Create(payload, options: new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
-            var response = await _apiClient.PostAsync("/auth/login", content, false);
+            var response = await _apiClient.PostAsync("/auth/login", content);
 
             if (response.IsSuccessStatusCode)
             {
-
                 var json = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
@@ -74,42 +52,51 @@ namespace recontrol_win.Services
                 var access = root.GetProperty("access_token").GetString() ?? string.Empty;
                 var refresh = root.GetProperty("refresh_token").GetString() ?? string.Empty;
 
-                var tokenData = new TokenData(userId, devId, access, refresh);
-                _tokenStore.Save(tokenData);
-
+                _tokenStore.Save(new TokenData(userId, devId, access, refresh));
             }
 
             return response;
         }
 
-        /// <summary>
-        /// Refresh tokens by sending a request with a Refresh-Token header. Sends POST to /auth/refresh.
-        /// </summary>
-        public async Task<HttpResponseMessage> RefreshAsync(string refreshToken)
+        public async Task<bool> RefreshTokensAsync()
         {
-            if (string.IsNullOrWhiteSpace(refreshToken)) throw new ArgumentNullException(nameof(refreshToken));
+            var refreshToken = GetRefreshToken();
+            if (string.IsNullOrWhiteSpace(refreshToken))
+                return false;
 
-            var headers = new Dictionary<string, string>
+            var headers = new Dictionary<string, string> { { "Refresh-Token", refreshToken } };
+            HttpContent empty = new StringContent(string.Empty);
+
+            var response = await _apiClient.PostAsync("/auth/refresh", empty, headers);
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var newAccess = root.GetProperty("access_token").GetString();
+            var newRefresh = root.TryGetProperty("refresh_token", out var rt) ? rt.GetString() : refreshToken;
+
+            if (string.IsNullOrWhiteSpace(newAccess))
+                return false;
+
+            var current = _tokenStore.Load();
+            if (current != null)
             {
-                { "Refresh-Token", refreshToken }
-            };
+                var updated = new TokenData(current.UserId, current.DeviceId, newAccess, newRefresh ?? current.RefreshToken);
+                _tokenStore.Save(updated);
+            }
 
-            // No body required for refresh; send an empty POST
-            HttpContent emptyContent = new StringContent(string.Empty);
-
-            return await _apiClient.PostAsync("/auth/refresh", emptyContent, headers);
+            return true;
         }
 
-        // Convenience getters that read stored tokens
         public string? GetAccessToken() => _tokenStore.GetAccessToken();
         public string? GetRefreshToken() => _tokenStore.GetRefreshToken();
         public string? GetDeviceId() => _tokenStore.GetDeviceId();
         public string? GetUserId() => _tokenStore.GetUserId();
         public TokenData? GetTokenData() => _tokenStore.Load();
 
-        public void Dispose()
-        {
-            _apiClient?.Dispose();
-        }
+        public void Dispose() => _apiClient.Dispose();
     }
 }
