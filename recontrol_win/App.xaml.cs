@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using recontrol_win.Services;
+using recontrol_win.Tools;
 
 namespace recontrol_win
 {
