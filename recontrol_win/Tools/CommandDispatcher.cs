@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Diagnostics;
+using System.Text.Json;
 
 namespace recontrol_win
 {
@@ -107,7 +108,7 @@ namespace recontrol_win
 
                 if (!_commandFactories.TryGetValue(request.Command, out var factory))
                     throw new NotSupportedException($"Command type '{request.Command}' is not supported.");
-
+                Debug.WriteLine($"Executing {request.Command}");
                 var command = factory(request.Payload);
                 var result = await command.ExecuteAsync();
 
@@ -120,7 +121,7 @@ namespace recontrol_win
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error processing request: {ex.Message}\n{ex.StackTrace}");
+                Debug.WriteLine($"Error processing request: {ex.Message}\n{ex.StackTrace}");
                 if (request?.Id != null)
                 {
                     return _jsonParser.SerializeError(request.Id, ex.Message);

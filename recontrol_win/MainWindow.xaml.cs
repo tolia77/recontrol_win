@@ -19,6 +19,10 @@ namespace recontrol_win
         private readonly WebSocketClient _wsClient;
         private readonly Uri _wsUri = new Uri("ws://localhost:3000/cable");
 
+        // new: command parser/dispatcher
+        private readonly CommandJsonParser _cmdParser;
+        private readonly CommandDispatcher _dispatcher;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -29,6 +33,10 @@ namespace recontrol_win
             _wsClient.ConnectionStatusChanged += OnConnectionStatusChanged;
             _wsClient.MessageReceived += OnMessageReceived;
             _wsClient.InfoMessage += OnInfoMessage;
+
+            // initialize command handling
+            _cmdParser = new CommandJsonParser();
+            _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService());
 
             _ = ConnectAsync();
         }
@@ -78,14 +86,48 @@ namespace recontrol_win
                         if (message.TryGetProperty("command", out var cmdProp) && cmdProp.ValueKind == JsonValueKind.String)
                             command = cmdProp.GetString() ?? "";
 
-                        object payload = new { }; // default empty payload
+                        string payloadRaw = "{}";
                         if (message.TryGetProperty("payload", out var payloadProp))
-                        {
-                            // Pass the raw JsonElement so AddMessage serializes it correctly
-                            payload = payloadProp;
-                        }
+                            payloadRaw = payloadProp.GetRawText();
 
-                        AddMessage(from, command, payload);
+                        // show the message in UI (display raw payload text)
+                        AddMessage(from, command, new { raw = payloadRaw });
+
+                        // Dispatch command in background to avoid blocking receive loop
+                        _ = Task.Run(async () =>
+                        {
+                            Debug.WriteLine($"Dispatching command: {command} from {from}");
+                            try
+                            {
+                                using var payloadDoc = JsonDocument.Parse(payloadRaw);
+                                var request = new BaseRequest
+                                {
+                                    Command = command,
+                                    Payload = payloadDoc.RootElement
+                                };
+
+                                var response = await _dispatcher.HandleRequestAsync(request);
+                                Debug.WriteLine($"Command {command} completed. Response: {response}");
+
+                                if (!string.IsNullOrEmpty(response))
+                                {
+                                    try
+                                    {
+                                        await _wsClient.SendAsync(response);
+                                        Debug.WriteLine($"Sent response for command {command}");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"Failed to send response: {ex.Message}");
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"Error dispatching command {command}: {ex.Message}");
+                            }
+                        });
+
                         return;
                     }
 
