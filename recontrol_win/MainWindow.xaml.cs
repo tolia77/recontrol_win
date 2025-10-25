@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -59,24 +60,47 @@ namespace recontrol_win
         private void OnMessageReceived(string text)
         {
             // try parse as JSON and display message field if present
+            Debug.WriteLine($"Received: {text}");
             try
             {
-                var doc = JsonDocument.Parse(text);
+                using var doc = JsonDocument.Parse(text);
+
                 if (doc.RootElement.TryGetProperty("message", out var message))
                 {
-                    var from = message.GetProperty("from").GetString() ?? "unknown";
-                    var command = message.GetProperty("command").GetString() ?? "";
-                    var payload = message.GetProperty("payload");
-                    AddMessage(from, command, payload);
+                    // Only treat as structured message when it's a JSON object
+                    if (message.ValueKind == JsonValueKind.Object)
+                    {
+                        var from = "unknown";
+                        if (message.TryGetProperty("from", out var fromProp) && fromProp.ValueKind == JsonValueKind.String)
+                            from = fromProp.GetString() ?? "unknown";
+
+                        string command = "";
+                        if (message.TryGetProperty("command", out var cmdProp) && cmdProp.ValueKind == JsonValueKind.String)
+                            command = cmdProp.GetString() ?? "";
+
+                        object payload = new { }; // default empty payload
+                        if (message.TryGetProperty("payload", out var payloadProp))
+                        {
+                            // Pass the raw JsonElement so AddMessage serializes it correctly
+                            payload = payloadProp;
+                        }
+
+                        AddMessage(from, command, payload);
+                        return;
+                    }
+
+                    // fallback: 'message' exists but is not an object (e.g. ping with number)
+                    AddMessage("server", "raw", new { text });
                     return;
                 }
 
-                // fallback: show raw payload
+                // fallback: no 'message' property
                 AddMessage("server", "raw", new { text });
             }
-            catch
+            catch (Exception ex)
             {
-                AddMessage("server", "raw", new { text });
+                // include exception message for easier debugging
+                AddMessage("server", "raw", new { text, error = ex.Message });
             }
         }
 

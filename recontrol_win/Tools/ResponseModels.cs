@@ -10,7 +10,7 @@ namespace recontrol_win
     internal class BaseRequest
     {
         public string? Id { get; set; }
-        public string Type { get; set; } = string.Empty;
+        public string Command { get; set; } = string.Empty;
 
         // The payload is held as a raw JsonElement, to be deserialized
         // later by the specific command handler.

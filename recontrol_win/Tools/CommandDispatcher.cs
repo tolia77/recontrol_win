@@ -102,11 +102,11 @@ namespace recontrol_win
         {
             try
             {
-                if (request == null || string.IsNullOrEmpty(request.Type))
+                if (request == null || string.IsNullOrEmpty(request.Command))
                     throw new InvalidOperationException("Invalid request object or missing 'type'.");
 
-                if (!_commandFactories.TryGetValue(request.Type, out var factory))
-                    throw new NotSupportedException($"Command type '{request.Type}' is not supported.");
+                if (!_commandFactories.TryGetValue(request.Command, out var factory))
+                    throw new NotSupportedException($"Command type '{request.Command}' is not supported.");
 
                 var command = factory(request.Payload);
                 var result = await command.ExecuteAsync();

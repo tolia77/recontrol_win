@@ -132,22 +132,15 @@ namespace recontrol_win.Tools
 
         private async Task CloseInternalAsync()
         {
-            try
+            if (_ws != null)
             {
-                if (_ws != null)
+                if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
                 {
-                    if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
-                    {
-                        await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
-                    }
-
-                    _ws.Dispose();
-                    _ws = null;
+                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
                 }
-            }
-            catch
-            {
-                // ignore
+
+                _ws.Dispose();
+                _ws = null;
             }
         }
 
