@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace recontrol_win.Services
+namespace recontrol_win.Tools
 {
     /// <summary>
     /// Holds token information to persist.

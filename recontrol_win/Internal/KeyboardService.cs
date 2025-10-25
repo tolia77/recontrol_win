@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace recontrol_console
+namespace recontrol_win
 {
     // Limited set of virtual keys for convenience. Users can cast any VK code (see WinUser.h)
     internal enum VirtualKey : ushort

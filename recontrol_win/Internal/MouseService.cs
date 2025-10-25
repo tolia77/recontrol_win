@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace recontrol_console
+namespace recontrol_win
 {
     internal enum MouseButton
     {

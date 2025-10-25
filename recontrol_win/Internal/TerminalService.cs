@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace recontrol_console
+namespace recontrol_win
 {
     internal enum TerminalType
     {

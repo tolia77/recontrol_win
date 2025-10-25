@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using recontrol_win.Services;
+using recontrol_win.Tools;
 
 namespace recontrol_win
 {

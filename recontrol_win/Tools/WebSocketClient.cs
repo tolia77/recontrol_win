@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace recontrol_win.Services
+namespace recontrol_win.Tools
 {
     /// <summary>
     /// Lightweight WebSocket client wrapper with token-based auth and single-refresh retry.
@@ -46,7 +46,7 @@ namespace recontrol_win.Services
 
                     _ws = new ClientWebSocket();
                     var uriWithToken = new Uri($"{_uri}?access_token={Uri.EscapeDataString(token)}");
-                    await _ws.ConnectAsync(uriWithToken, System.Threading.CancellationToken.None);
+                    await _ws.ConnectAsync(uriWithToken, CancellationToken.None);
 
                     ConnectionStatusChanged?.Invoke(true);
 
@@ -96,10 +96,10 @@ namespace recontrol_win.Services
             {
                 while (ws != null && ws.State == WebSocketState.Open)
                 {
-                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), System.Threading.CancellationToken.None);
+                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", System.Threading.CancellationToken.None);
+                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                         break;
                     }
 
@@ -127,7 +127,7 @@ namespace recontrol_win.Services
         {
             if (_ws == null || _ws.State != WebSocketState.Open) throw new InvalidOperationException("WebSocket is not connected");
             var bytes = Encoding.UTF8.GetBytes(message);
-            await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, System.Threading.CancellationToken.None);
+            await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
         }
 
         private async Task CloseInternalAsync()
@@ -138,7 +138,7 @@ namespace recontrol_win.Services
                 {
                     if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
                     {
-                        await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", System.Threading.CancellationToken.None);
+                        await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
                     }
 
                     _ws.Dispose();
