@@ -1,205 +1,132 @@
 ﻿using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace recontrol_win
 {
     /// <summary>
-    /// Handles parsing JSON requests, dispatching them to the correct service,
-    /// and serializing the response.
+    /// Dispatches parsed commands to dedicated command classes.
     /// </summary>
     internal class CommandDispatcher
     {
         private readonly KeyboardService _keyboardService;
         private readonly MouseService _mouseService;
         private readonly TerminalService _terminalService;
+        private readonly CommandJsonParser _jsonParser;
 
-        private readonly JsonSerializerOptions _jsonOptions;
+        // Router maps command type -> factory that builds a command from payload
+        private readonly Dictionary<string, Func<JsonElement, IAppCommand>> _commandFactories;
 
-        // This dictionary is the core router. It maps a "type" string
-        // to an async function that takes a JsonElement (the payload)
-        // and returns the result as an object.
-        private readonly Dictionary<string, Func<JsonElement, Task<object?>>> _commandHandlers;
-
-        public CommandDispatcher(KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService)
+        public CommandDispatcher(CommandJsonParser jsonParser, KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService)
         {
+            _jsonParser = jsonParser;
             _keyboardService = keyboardService;
             _mouseService = mouseService;
             _terminalService = terminalService;
 
-            // Configure JSON options for case-insensitivity and enum conversion
-            _jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-            };
-            _jsonOptions.Converters.Add(new JsonStringEnumConverter());
-
-            // Initialize the command handler mapping
-            _commandHandlers = new Dictionary<string, Func<JsonElement, Task<object?>>>
+            _commandFactories = new Dictionary<string, Func<JsonElement, IAppCommand>>
             {
                 // KeyboardService
-                { "keyboard.keyDown", async (payload) => {
-                    var args = Deserialize<KeyPayload>(payload);
-                    await Task.Run(() => _keyboardService.KeyDown(args.Key));
-                    return null; // 'void' methods return null
+                { "keyboard.keyDown", payload => {
+                    var args = _jsonParser.DeserializePayload<KeyPayload>(payload);
+                    return new KeyDownCommand(_keyboardService, args);
                 }},
-                { "keyboard.keyUp", async (payload) => {
-                    var args = Deserialize<KeyPayload>(payload);
-                    await Task.Run(() => _keyboardService.KeyUp(args.Key));
-                    return null;
+                { "keyboard.keyUp", payload => {
+                    var args = _jsonParser.DeserializePayload<KeyPayload>(payload);
+                    return new KeyUpCommand(_keyboardService, args);
                 }},
-                { "keyboard.press", async (payload) => {
-                    var args = Deserialize<KeyPressPayload>(payload);
-                    await Task.Run(() => _keyboardService.Press(args.Key, args.HoldMs));
-                    return null;
+                { "keyboard.press", payload => {
+                    var args = _jsonParser.DeserializePayload<KeyPressPayload>(payload);
+                    return new KeyPressCommand(_keyboardService, args);
                 }},
 
                 // MouseService
-                { "mouse.move", async (payload) => {
-                    var args = Deserialize<MouseMovePayload>(payload);
-                    await Task.Run(() => _mouseService.MoveMouse(args.DeltaX, args.DeltaY));
-                    return null;
+                { "mouse.move", payload => {
+                    var args = _jsonParser.DeserializePayload<MouseMovePayload>(payload);
+                    return new MouseMoveCommand(_mouseService, args);
                 }},
-                { "mouse.down", async (payload) => {
-                    var args = Deserialize<MouseButtonPayload>(payload);
-                    await Task.Run(() => _mouseService.MouseDown(args.Button));
-                    return null;
+                { "mouse.down", payload => {
+                    var args = _jsonParser.DeserializePayload<MouseButtonPayload>(payload);
+                    return new MouseDownCommand(_mouseService, args);
                 }},
-                { "mouse.up", async (payload) => {
-                    var args = Deserialize<MouseButtonPayload>(payload);
-                    await Task.Run(() => _mouseService.MouseUp(args.Button));
-                    return null;
+                { "mouse.up", payload => {
+                    var args = _jsonParser.DeserializePayload<MouseButtonPayload>(payload);
+                    return new MouseUpCommand(_mouseService, args);
                 }},
-                { "mouse.scroll", async (payload) => {
-                    var args = Deserialize<MouseScrollPayload>(payload);
-                    await Task.Run(() => _mouseService.Scroll(args.Clicks));
-                    return null;
+                { "mouse.scroll", payload => {
+                    var args = _jsonParser.DeserializePayload<MouseScrollPayload>(payload);
+                    return new MouseScrollCommand(_mouseService, args);
                 }},
-                { "mouse.click", async (payload) => {
-                    var args = Deserialize<MouseClickPayload>(payload);
-                    await Task.Run(() => _mouseService.Click(args.Button, args.DelayMs));
-                    return null;
+                { "mouse.click", payload => {
+                    var args = _jsonParser.DeserializePayload<MouseClickPayload>(payload);
+                    return new MouseClickCommand(_mouseService, args);
                 }},
-                { "mouse.doubleClick", async (payload) => {
-                    var args = Deserialize<MouseDoubleClickPayload>(payload);
-                    await Task.Run(() => _mouseService.DoubleClick(args.DelayMs));
-                    return null;
+                { "mouse.doubleClick", payload => {
+                    var args = _jsonParser.DeserializePayload<MouseDoubleClickPayload>(payload);
+                    return new MouseDoubleClickCommand(_mouseService, args);
                 }},
-                { "mouse.rightClick", async (payload) => {
-                    await Task.Run(() => _mouseService.RightClick());
-                    return null;
-                }},
+                { "mouse.rightClick", payload => new MouseRightClickCommand(_mouseService) },
 
                 // TerminalService
-                { "terminal.execute", (payload) => {
-                    var args = Deserialize<TerminalCommandPayload>(payload);
-                    // Wrap synchronous, blocking calls in Task.Run to avoid blocking the network listener
-                    return RunSync(() => _terminalService.Execute(args.Command, args.Timeout));
+                { "terminal.execute", payload => {
+                    var args = _jsonParser.DeserializePayload<TerminalCommandPayload>(payload);
+                    return new TerminalExecuteCommand(_terminalService, args);
                 }},
-                { "terminal.powershell", (payload) => {
-                    var args = Deserialize<TerminalCommandPayload>(payload);
-                    return RunSync(() => _terminalService.PowerShell(args.Command, args.Timeout));
+                { "terminal.powershell", payload => {
+                    var args = _jsonParser.DeserializePayload<TerminalCommandPayload>(payload);
+                    return new TerminalPowerShellCommand(_terminalService, args);
                 }},
-                { "terminal.listProcesses", (payload) => {
-                    return RunSync(() => _terminalService.ListProcesses());
+                { "terminal.listProcesses", payload => new TerminalListProcessesCommand(_terminalService) },
+                { "terminal.killProcess", payload => {
+                    var args = _jsonParser.DeserializePayload<TerminalKillPayload>(payload);
+                    return new TerminalKillProcessCommand(_terminalService, args);
                 }},
-                { "terminal.killProcess", (payload) => {
-                    var args = Deserialize<TerminalKillPayload>(payload);
-                    return RunSync(() => _terminalService.KillProcess(args.Pid, args.Force));
+                { "terminal.startProcess", payload => {
+                    var args = _jsonParser.DeserializePayload<TerminalStartPayload>(payload);
+                    return new TerminalStartProcessCommand(_terminalService, args);
                 }},
-                { "terminal.startProcess", (payload) => {
-                    var args = Deserialize<TerminalStartPayload>(payload);
-                    return RunSync(() => _terminalService.StartProcess(args.FileName, args.Arguments, args.RedirectOutput));
+                { "terminal.getCwd", payload => new TerminalGetCwdCommand(_terminalService) },
+                { "terminal.setCwd", payload => {
+                    var args = _jsonParser.DeserializePayload<TerminalSetCwdPayload>(payload);
+                    return new TerminalSetCwdCommand(_terminalService, args);
                 }},
-                { "terminal.getCwd", (payload) => {
-                    return RunSync(() => _terminalService.GetCwd());
-                }},
-                { "terminal.setCwd", async (payload) => {
-                    var args = Deserialize<TerminalSetCwdPayload>(payload);
-                    await Task.Run(() => _terminalService.SetCwd(args.Path));
-                    return null;
-                }},
-                { "terminal.whoAmI", (payload) => {
-                    return RunSync(() => _terminalService.WhoAmI());
-                }},
-                { "terminal.getUptime", (payload) => {
-                    return RunSync(() => _terminalService.GetUptime());
-                }},
-                { "terminal.abort", async (payload) => {
-                    await Task.Run(() => _terminalService.Abort());
-                    return null;
-                }},
+                { "terminal.whoAmI", payload => new TerminalWhoAmICommand(_terminalService) },
+                { "terminal.getUptime", payload => new TerminalGetUptimeCommand(_terminalService) },
+                { "terminal.abort", payload => new TerminalAbortCommand(_terminalService) },
             };
         }
 
         /// <summary>
-        /// Main entry point for handling an incoming JSON request string.
+        /// Handle a parsed request by creating and executing a command.
         /// Returns a JSON response string, or null if no response is needed.
         /// </summary>
-        public async Task<string?> HandleRequestAsync(string jsonRequest)
+        public async Task<string?> HandleRequestAsync(BaseRequest request)
         {
-            BaseRequest? request = null;
             try
             {
-                // 1. Deserialize the base request to get ID, Type, and Payload
-                request = JsonSerializer.Deserialize<BaseRequest>(jsonRequest, _jsonOptions);
                 if (request == null || string.IsNullOrEmpty(request.Type))
-                {
                     throw new InvalidOperationException("Invalid request object or missing 'type'.");
-                }
 
-                // 2. Find the correct handler for the 'type'
-                if (!_commandHandlers.TryGetValue(request.Type, out var handler))
-                {
+                if (!_commandFactories.TryGetValue(request.Type, out var factory))
                     throw new NotSupportedException($"Command type '{request.Type}' is not supported.");
-                }
 
-                // 3. Execute the handler
-                // The handler itself is responsible for parsing the 'Payload' property
-                object? result = await handler(request.Payload);
+                var command = factory(request.Payload);
+                var result = await command.ExecuteAsync();
 
-                // 4. If an 'id' was provided, format a success response
                 if (request.Id != null)
                 {
-                    var response = new SuccessResponse(request.Id, result);
-                    return JsonSerializer.Serialize(response, _jsonOptions);
+                    return _jsonParser.SerializeSuccess(request.Id, result);
                 }
 
-                return null; // No 'id', no response needed
+                return null;
             }
             catch (Exception ex)
             {
-                // 5. If anything fails, format an error response (if an 'id' was present)
                 Console.WriteLine($"Error processing request: {ex.Message}\n{ex.StackTrace}");
                 if (request?.Id != null)
                 {
-                    var response = new ErrorResponse(request.Id, ex.Message);
-                    return JsonSerializer.Serialize(response, _jsonOptions);
+                    return _jsonParser.SerializeError(request.Id, ex.Message);
                 }
-
-                return null; // Error, but no 'id' to send the error back to
+                return null;
             }
-        }
-
-        /// <summary>
-        /// Helper to deserialize a payload from a JsonElement.
-        /// </summary>
-        private T Deserialize<T>(JsonElement payload)
-        {
-            var args = payload.Deserialize<T>(_jsonOptions);
-            if (args == null)
-            {
-                throw new InvalidOperationException($"Invalid payload for command. Could not deserialize to {typeof(T).Name}.");
-            }
-            return args;
-        }
-
-        /// <summary>
-        /// Helper to wrap synchronous functions with a return value in a Task.
-        /// </summary>
-        private async Task<object?> RunSync<T>(Func<T> func)
-        {
-            T result = await Task.Run(func);
-            return result;
         }
     }
 }
