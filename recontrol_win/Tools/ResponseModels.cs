@@ -1,6 +1,7 @@
-﻿using System.Text.Json;
+﻿using recontrol_win.Internal;
+using System.Text.Json;
 
-namespace recontrol_win
+namespace recontrol_win.Tools
 {
     // ==================== BASE REQUEST / RESPONSE WRAPPERS ====================
 

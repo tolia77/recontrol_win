@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace recontrol_win
+namespace recontrol_win.Internal
 {
     internal enum MouseButton
     {
@@ -91,7 +91,7 @@ namespace recontrol_win
                         mouseData = mouseData,
                         dwFlags = flags,
                         time = 0,
-                        dwExtraInfo = IntPtr.Zero
+                        dwExtraInfo = nint.Zero
                     }
                 }
             };
@@ -131,7 +131,7 @@ namespace recontrol_win
             public int mouseData;
             public MouseEventFlags dwFlags;
             public uint time;
-            public IntPtr dwExtraInfo;
+            public nint dwExtraInfo;
         }
 
         [Flags]

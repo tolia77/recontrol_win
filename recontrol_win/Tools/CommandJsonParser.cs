@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace recontrol_win
+namespace recontrol_win.Tools
 {
     internal class CommandJsonParser
     {

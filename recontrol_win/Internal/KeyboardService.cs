@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace recontrol_win
+namespace recontrol_win.Internal
 {
     // Limited set of virtual keys for convenience. Users can cast any VK code (see WinUser.h)
     internal enum VirtualKey : ushort
@@ -55,7 +55,7 @@ namespace recontrol_win
             input.U.ki.wScan = 0;
             input.U.ki.dwFlags = flags;
             input.U.ki.time = 0;
-            input.U.ki.dwExtraInfo = IntPtr.Zero;
+            input.U.ki.dwExtraInfo = nint.Zero;
 
             uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
             if (sent == 0)
@@ -95,7 +95,7 @@ namespace recontrol_win
             public uint mouseData;
             public uint dwFlags;
             public uint time;
-            public IntPtr dwExtraInfo;
+            public nint dwExtraInfo;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -105,7 +105,7 @@ namespace recontrol_win
             public ushort wScan;
             public uint dwFlags;
             public uint time;
-            public IntPtr dwExtraInfo;
+            public nint dwExtraInfo;
         }
 
         [StructLayout(LayoutKind.Sequential)]

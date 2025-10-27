@@ -1,7 +1,8 @@
-﻿using System.Diagnostics;
+﻿using recontrol_win.Internal;
+using System.Diagnostics;
 using System.Text.Json;
 
-namespace recontrol_win
+namespace recontrol_win.Tools
 {
     /// <summary>
     /// Dispatches parsed commands to dedicated command classes.
