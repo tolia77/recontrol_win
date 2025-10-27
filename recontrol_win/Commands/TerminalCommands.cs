@@ -2,7 +2,7 @@ using recontrol_win.Internal;
 using recontrol_win.Tools;
 using System.Threading.Tasks;
 
-namespace recontrol_win
+namespace recontrol_win.Commands
 {
     internal sealed class TerminalExecuteCommand : IAppCommand
     {
