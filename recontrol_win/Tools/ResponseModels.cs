@@ -129,4 +129,22 @@ namespace recontrol_win.Tools
     {
         public string Path { get; set; } = string.Empty;
     }
+
+    // Screen Payloads
+    internal class ScreenStartPayload
+    {
+        public int Display { get; set; } = 0;
+        public bool IncludeCursor { get; set; } = false;
+    }
+
+    internal class ScreenCapturePayload
+    {
+        public int Display { get; set; } = 0;
+        public string Format { get; set; } = "png";
+    }
+
+    internal class ScreenStopPayload
+    {
+        public int Display { get; set; } = 0;
+    }
 }

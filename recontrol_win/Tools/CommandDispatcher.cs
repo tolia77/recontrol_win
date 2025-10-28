@@ -1,4 +1,5 @@
-﻿using recontrol_win.Internal;
+﻿using recontrol_win.Commands;
+using recontrol_win.Internal;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -13,16 +14,20 @@ namespace recontrol_win.Tools
         private readonly MouseService _mouseService;
         private readonly TerminalService _terminalService;
         private readonly CommandJsonParser _jsonParser;
+        private readonly ScreenService _screenService;
+        private readonly Func<string, Task> _sender;
 
         // Router maps command type -> factory that builds a command from payload
         private readonly Dictionary<string, Func<JsonElement, IAppCommand>> _commandFactories;
 
-        public CommandDispatcher(CommandJsonParser jsonParser, KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService)
+        public CommandDispatcher(CommandJsonParser jsonParser, KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService, ScreenService screenService, Func<string, Task> sender)
         {
             _jsonParser = jsonParser;
             _keyboardService = keyboardService;
             _mouseService = mouseService;
             _terminalService = terminalService;
+            _screenService = screenService;
+            _sender = sender;
 
             _commandFactories = new Dictionary<string, Func<JsonElement, IAppCommand>>
             {
@@ -93,6 +98,13 @@ namespace recontrol_win.Tools
                 { "terminal.whoAmI", payload => new TerminalWhoAmICommand(_terminalService) },
                 { "terminal.getUptime", payload => new TerminalGetUptimeCommand(_terminalService) },
                 { "terminal.abort", payload => new TerminalAbortCommand(_terminalService) },
+
+                // Screen capture / streaming
+                { "screen.start", payload => {
+                    var args = _jsonParser.DeserializePayload< recontrol_win.Commands.ScreenStartPayload>(payload);
+                    return new ScreenStartCommand(_screenService, args, _sender);
+                }},
+                { "screen.stop", payload => new ScreenStopCommand(_screenService) }
             };
         }
 

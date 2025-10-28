@@ -4,7 +4,7 @@ using recontrol_win.Tools;
 
 namespace recontrol_win
 {
-    public partial class App : Application
+    public partial class App : System.Windows.Application
     {
         private void Application_Startup(object sender, StartupEventArgs e)
         {

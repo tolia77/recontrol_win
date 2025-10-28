@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using recontrol_win.Services;
 using recontrol_win.Tools;
+using recontrol_win.Internal;
 
 namespace recontrol_win
 {
@@ -22,6 +23,7 @@ namespace recontrol_win
         // new: command parser/dispatcher
         private readonly CommandJsonParser _cmdParser;
         private readonly CommandDispatcher _dispatcher;
+        private readonly ScreenService _screenService;
 
         public MainWindow()
         {
@@ -36,7 +38,8 @@ namespace recontrol_win
 
             // initialize command handling
             _cmdParser = new CommandJsonParser();
-            _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService());
+            _screenService = new ScreenService();
+            _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService(), _screenService, async (msg) => { try { await _wsClient.SendAsync(msg); } catch { } });
 
             _ = ConnectAsync();
         }
@@ -190,6 +193,7 @@ namespace recontrol_win
             base.OnClosed(e);
             try { _wsClient.Dispose(); } catch { }
             try { _auth.Dispose(); } catch { }
+            try { _screenService.Dispose(); } catch { }
         }
     }
 }
