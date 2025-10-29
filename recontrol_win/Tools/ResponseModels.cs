@@ -131,12 +131,6 @@ namespace recontrol_win.Tools
     }
 
     // Screen Payloads
-    internal class ScreenStartPayload
-    {
-        public int Display { get; set; } = 0;
-        public bool IncludeCursor { get; set; } = false;
-    }
-
     internal class ScreenCapturePayload
     {
         public int Display { get; set; } = 0;

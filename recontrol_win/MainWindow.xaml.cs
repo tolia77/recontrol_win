@@ -24,6 +24,7 @@ namespace recontrol_win
         private readonly CommandJsonParser _cmdParser;
         private readonly CommandDispatcher _dispatcher;
         private readonly ScreenService _screenService;
+        private readonly PowerService _powerService;
 
         public MainWindow()
         {
@@ -39,7 +40,8 @@ namespace recontrol_win
             // initialize command handling
             _cmdParser = new CommandJsonParser();
             _screenService = new ScreenService();
-            _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService(), _screenService, async (msg) => { try { await _wsClient.SendAsync(msg); } catch { } });
+            _powerService = new PowerService(new TerminalService());
+            _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService(), _screenService, _powerService, async (msg) => { try { await _wsClient.SendAsync(msg); } catch { } });
 
             _ = ConnectAsync();
         }

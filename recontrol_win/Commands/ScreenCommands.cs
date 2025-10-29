@@ -6,22 +6,14 @@ using System.Threading.Tasks;
 
 namespace recontrol_win.Commands
 {
-    internal class ScreenStartPayload
-    {
-        public int Quality { get; set; } = 30;
-        public int IntervalMs { get; set; } = 200;
-    }
-
     internal sealed class ScreenStartCommand : IAppCommand
     {
         private readonly ScreenService _service;
-        private readonly ScreenStartPayload _args;
         private readonly Func<string, Task> _sender;
 
-        public ScreenStartCommand(ScreenService service, ScreenStartPayload args, Func<string, Task> sender)
+        public ScreenStartCommand(ScreenService service, Func<string, Task> sender)
         {
             _service = service;
-            _args = args;
             _sender = sender;
         }
 
@@ -55,7 +47,7 @@ namespace recontrol_win.Commands
                     _ = _sender(json);
                 }
                 catch { }
-            }, _args.Quality, _args.IntervalMs);
+            }, 30, 100); // hardcoded 30% quality, 200ms interval
 
             return Task.FromResult<object?>("started");
         }

@@ -15,18 +15,20 @@ namespace recontrol_win.Tools
         private readonly TerminalService _terminalService;
         private readonly CommandJsonParser _jsonParser;
         private readonly ScreenService _screenService;
+        private readonly PowerService _powerService;
         private readonly Func<string, Task> _sender;
 
         // Router maps command type -> factory that builds a command from payload
         private readonly Dictionary<string, Func<JsonElement, IAppCommand>> _commandFactories;
 
-        public CommandDispatcher(CommandJsonParser jsonParser, KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService, ScreenService screenService, Func<string, Task> sender)
+        public CommandDispatcher(CommandJsonParser jsonParser, KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService, ScreenService screenService, PowerService powerService, Func<string, Task> sender)
         {
             _jsonParser = jsonParser;
             _keyboardService = keyboardService;
             _mouseService = mouseService;
             _terminalService = terminalService;
             _screenService = screenService;
+            _powerService = powerService;
             _sender = sender;
 
             _commandFactories = new Dictionary<string, Func<JsonElement, IAppCommand>>
@@ -100,11 +102,16 @@ namespace recontrol_win.Tools
                 { "terminal.abort", payload => new TerminalAbortCommand(_terminalService) },
 
                 // Screen capture / streaming
-                { "screen.start", payload => {
-                    var args = _jsonParser.DeserializePayload< recontrol_win.Commands.ScreenStartPayload>(payload);
-                    return new ScreenStartCommand(_screenService, args, _sender);
-                }},
-                { "screen.stop", payload => new ScreenStopCommand(_screenService) }
+                { "screen.start", payload => new ScreenStartCommand(_screenService, _sender) },
+                { "screen.stop", payload => new ScreenStopCommand(_screenService) },
+
+                // PowerService
+                { "power.shutdown", payload => new PowerShutdownCommand(_powerService) },
+                { "power.restart", payload => new PowerRestartCommand(_powerService) },
+                { "power.sleep", payload => new PowerSleepCommand(_powerService) },
+                { "power.hibernate", payload => new PowerHibernateCommand(_powerService) },
+                { "power.logOff", payload => new PowerLogOffCommand(_powerService) },
+                { "power.lock", payload => new PowerLockCommand(_powerService) }
             };
         }
 
