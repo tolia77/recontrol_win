@@ -80,8 +80,8 @@ namespace recontrol_win.Tools
     // Mouse Payloads
     internal class MouseMovePayload
     {
-        public int DeltaX { get; set; } = 0;
-        public int DeltaY { get; set; } = 0;
+        public int X { get; set; } = 0;
+        public int Y { get; set; } = 0;
     }
 
     internal class MouseButtonPayload

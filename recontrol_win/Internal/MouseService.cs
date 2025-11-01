@@ -14,10 +14,21 @@ namespace recontrol_win.Internal
     internal class MouseService
     {
         // Public API
-        public void MoveMouse(int deltaX, int deltaY)
+        public void MoveMouseTo(int x, int y)
         {
             EnsureWindows();
-            SendMouseInput(deltaX, deltaY, 0, MouseEventFlags.MOVE);
+
+            // Use the virtual screen to properly support multi-monitor and DPI scenarios
+            int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+            // Normalize to [0, 65535] inclusive per Win32 docs: x * 65535 / (width - 1)
+            int nx = NormalizeToAbsolute(x - vx, vw);
+            int ny = NormalizeToAbsolute(y - vy, vh);
+
+            SendMouseInput(nx, ny, 0, MouseEventFlags.MOVE | MouseEventFlags.ABSOLUTE | MouseEventFlags.VIRTUALDESK);
         }
 
         public void MouseDown(MouseButton button)
@@ -77,6 +88,17 @@ namespace recontrol_win.Internal
                 throw new PlatformNotSupportedException("MouseService currently supports only Windows (user32 SendInput).");
         }
 
+        private static int NormalizeToAbsolute(int value, int range)
+        {
+            if (range <= 1)
+                return 0;
+            double norm = (double)value * 65535.0 / (range - 1);
+            int rounded = (int)Math.Round(norm);
+            if (rounded < 0) return 0;
+            if (rounded > 65535) return 65535;
+            return rounded;
+        }
+
         private void SendMouseInput(int dx, int dy, int mouseData, MouseEventFlags flags)
         {
             INPUT input = new()
@@ -106,9 +128,18 @@ namespace recontrol_win.Internal
 
         // Win32 interop
         private const int WHEEL_DELTA = 120;
+        private const int SM_CXSCREEN = 0;
+        private const int SM_CYSCREEN = 1;
+        private const int SM_XVIRTUALSCREEN = 76;
+        private const int SM_YVIRTUALSCREEN = 77;
+        private const int SM_CXVIRTUALSCREEN = 78;
+        private const int SM_CYVIRTUALSCREEN = 79;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int nIndex);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct INPUT
@@ -145,6 +176,8 @@ namespace recontrol_win.Internal
             MIDDLEDOWN = 0x0020,
             MIDDLEUP = 0x0040,
             WHEEL = 0x0800,
+            VIRTUALDESK = 0x4000,
+            ABSOLUTE = 0x8000,
             // Additional flags omitted for brevity
         }
 

@@ -8,7 +8,7 @@ namespace recontrol_win.Commands
     {
         private readonly MouseService _service; private readonly MouseMovePayload _args;
         public MouseMoveCommand(MouseService service, MouseMovePayload args){ _service = service; _args = args; }
-        public Task<object?> ExecuteAsync(){ _service.MoveMouse(_args.DeltaX, _args.DeltaY); return Task.FromResult<object?>(null); }
+        public Task<object?> ExecuteAsync(){ _service.MoveMouseTo(_args.X, _args.Y); return Task.FromResult<object?>(null); }
     }
 
     internal sealed class MouseDownCommand : IAppCommand
