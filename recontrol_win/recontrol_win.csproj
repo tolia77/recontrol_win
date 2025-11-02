@@ -1,23 +1,26 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
-  </PropertyGroup>
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net8.0-windows10.0.17763</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<UseWPF>true</UseWPF>
+		<UseWindowsForms>true</UseWindowsForms>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="DotNetEnv" Version="3.1.1" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="DotNetEnv" Version="3.1.1" />
+		<PackageReference Include="SIPSorcery" Version="6.1.3" />
+		<PackageReference Include="SIPSorceryMedia.Encoders" Version="8.0.7" />
+		<PackageReference Include="SIPSorceryMedia.Windows" Version="8.0.14" />
+		<PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <None Update=".env">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
+	<ItemGroup>
+		<None Update=".env">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
 
 </Project>

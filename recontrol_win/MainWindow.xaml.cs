@@ -18,13 +18,14 @@ namespace recontrol_win
         private readonly TokenStore _tokenStore = new TokenStore();
         private readonly AuthService _auth = new AuthService();
         private readonly WebSocketClient _wsClient;
-        private readonly Uri _wsUri = new Uri("ws://localhost:3000/cable");
+        private readonly Uri _wsUri = new Uri(Environment.GetEnvironmentVariable("WS_BASE_URL") ?? "ws://localhost:3000/cable");
 
         // new: command parser/dispatcher
         private readonly CommandJsonParser _cmdParser;
         private readonly CommandDispatcher _dispatcher;
         private readonly ScreenService _screenService;
         private readonly PowerService _powerService;
+        private readonly WebRTCClient _webrtc;
 
         public MainWindow()
         {
@@ -39,9 +40,25 @@ namespace recontrol_win
 
             // initialize command handling
             _cmdParser = new CommandJsonParser();
-            _screenService = new ScreenService();
+            _screenService = new ScreenService(); // This is still needed for your *old* screen.start command
             _powerService = new PowerService(new TerminalService());
             _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService(), _screenService, _powerService, async (msg) => { try { await _wsClient.SendAsync(msg); } catch { } });
+
+            // WebRTC helper: use ws send to relay signaling to Rails WebRtcChannel
+            // --- THIS IS THE FIX ---
+            _webrtc = new WebRTCClient(async (signal) =>
+            {
+                var data = new
+                {
+                    command = "message",
+                    identifier = JsonSerializer.Serialize(new { channel = "WebRtcChannel" }),
+                    data = JsonSerializer.Serialize(new { command = "signal", payload = signal })
+                };
+                await _wsClient.SendObjectAsync(data);
+            }); // <-- No more _screenService argument
+            // ---------------------
+
+            _webrtc.Log += (m) => Debug.WriteLine($"WebRTC: {m}");
 
             _ = ConnectAsync();
         }
@@ -78,6 +95,34 @@ namespace recontrol_win
             {
                 using var doc = JsonDocument.Parse(text);
 
+                // ActionCable wraps messages. If an identifier exists, we can route based on channel.
+                if (doc.RootElement.TryGetProperty("identifier", out var identifierEl) && identifierEl.ValueKind == JsonValueKind.String)
+                {
+                    var identifierStr = identifierEl.GetString();
+                    if (!string.IsNullOrEmpty(identifierStr))
+                    {
+                        try
+                        {
+                            using var idDoc = JsonDocument.Parse(identifierStr);
+                            var chan = idDoc.RootElement.TryGetProperty("channel", out var chEl) ? chEl.GetString() : null;
+                            if (chan == "WebRtcChannel")
+                            {
+                                // Signaling messages will be in message.payload
+                                if (doc.RootElement.TryGetProperty("message", out var rtcMsg) && rtcMsg.ValueKind == JsonValueKind.Object)
+                                {
+                                    if (rtcMsg.TryGetProperty("payload", out var payload))
+                                    {
+                                        _ = _webrtc.HandleSignalAsync(payload);
+                                        AddMessage("webrtc", "signal", new { raw = payload.GetRawText() });
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
                 if (doc.RootElement.TryGetProperty("message", out var message))
                 {
                     // Only treat as structured message when it's a JSON object
@@ -97,6 +142,18 @@ namespace recontrol_win
 
                         // show the message in UI (display raw payload text)
                         AddMessage(from, command, new { raw = payloadRaw });
+
+                        // Handle local webrtc.start/stop convenience commands
+                        if (command == "webrtc.start")
+                        {
+                            _ = _webrtc.StartAsOffererAsync();
+                            return;
+                        }
+                        else if (command == "webrtc.stop")
+                        {
+                            _webrtc.StopStreaming();
+                            return;
+                        }
 
                         // Dispatch command in background to avoid blocking receive loop
                         _ = Task.Run(async () =>
@@ -196,6 +253,8 @@ namespace recontrol_win
             try { _wsClient.Dispose(); } catch { }
             try { _auth.Dispose(); } catch { }
             try { _screenService.Dispose(); } catch { }
+            try { _webrtc.Dispose(); } catch { }
         }
     }
 }
+

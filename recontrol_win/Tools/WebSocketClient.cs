@@ -53,13 +53,20 @@ namespace recontrol_win.Tools
                     // start receive loop without awaiting
                     _ = ReceiveLoopAsync(_ws);
 
-                    // send subscribe
-                    var subscribe = new
+                    // send subscribe for both channels
+                    var subscribeCmd = new
                     {
                         command = "subscribe",
                         identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" })
                     };
-                    await SendObjectAsync(subscribe);
+                    await SendObjectAsync(subscribeCmd);
+
+                    var subscribeRtc = new
+                    {
+                        command = "subscribe",
+                        identifier = JsonSerializer.Serialize(new { channel = "WebRtcChannel" })
+                    };
+                    await SendObjectAsync(subscribeRtc);
 
                     return true;
                 }
