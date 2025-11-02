@@ -226,18 +226,31 @@ namespace recontrol_win.Tools
                     }
                 case "answer":
                     {
-                        var sdpStr = signalingPayload.GetProperty("sdp").GetString();
+                        var sdpStr = signalingPayload.TryGetProperty("sdp", out var sdp) ? sdp.GetString() : null;
                         LogInfo($"Remote answer SDP length={sdpStr?.Length}");
                         if (string.IsNullOrWhiteSpace(sdpStr)) break;
+
                         try
                         {
-                            var remote = SDP.ParseSDPDescription(sdpStr);
-                            _pc.SetRemoteDescription(SdpType.answer, remote);
+                            // --- START FIX ---
+                            // Use the ASYNC method that takes an RTCSessionDescriptionInit
+                            // This correctly wires up the internal state machine.
+                            var answerInit = new RTCSessionDescriptionInit
+                            {
+                                type = RTCSdpType.answer,
+                                sdp = sdpStr
+                            };
+                            var result = _pc.setRemoteDescription(answerInit);
+                            // --- END FIX ---
+
+                            LogInfo($"Remote answer set. Result: {result}"); // Log the result
+                            // --- END FIX ---
+
                             LogInfo("Remote answer set.");
                         }
                         catch (Exception ex)
                         {
-                            LogError($"SetRemoteDescription(answer) failed: {ex.Message}");
+                            LogError($"setRemoteDescription(answer) failed: {ex.Message}");
                         }
                         break;
                     }
