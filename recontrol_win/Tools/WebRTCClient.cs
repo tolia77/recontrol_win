@@ -145,14 +145,32 @@ namespace recontrol_win.Tools
             {
                 LogInfo("Creating SDP offer...");
                 var offer = _pc.CreateOffer(IPAddress.Any);
-                var sdp = offer.ToString();
+
+                if (offer == null)
+                {
+                    LogError("CreateOffer returned null.");
+                    return;
+                }
+
+                // --- CORRECTED BLOCK ---
+                LogInfo("Setting local description (offer)...");
+                var offerInit = new RTCSessionDescriptionInit
+                {
+                    type = RTCSdpType.offer,
+                    sdp = offer.ToString()
+                };
+                await _pc.setLocalDescription(offerInit); // <-- Use lowercase 's', await, and pass the Init object
+                LogInfo("Local description (offer) set.");
+                // --- END CORRECTION ---
+
+                var sdp = offer.ToString(); // We still send the full SDP string
                 LogInfo($"Offer created. SDP length={sdp?.Length}");
                 await _sendSignal(new { type = "offer", sdp });
                 LogInfo("Offer signal sent.");
             }
             catch (Exception ex)
             {
-                LogError($"CreateOffer/send failed: {ex.Message}");
+                LogError($"CreateOffer/setLocalDescription/send failed: {ex.Message}");
             }
         }
 
