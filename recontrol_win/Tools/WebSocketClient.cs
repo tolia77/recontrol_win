@@ -30,7 +30,6 @@ namespace recontrol_win.Tools
 
         public async Task<bool> ConnectAsync()
         {
-            // Try up to 2 attempts: initial, then refresh+retry
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 var token = await _getAccessToken();
@@ -46,19 +45,20 @@ namespace recontrol_win.Tools
 
                     _ws = new ClientWebSocket();
                     var uriWithToken = new Uri($"{_uri}?access_token={Uri.EscapeDataString(token)}");
+                    InfoMessage?.Invoke($"Connecting to {uriWithToken}");
                     await _ws.ConnectAsync(uriWithToken, CancellationToken.None);
 
                     ConnectionStatusChanged?.Invoke(true);
+                    InfoMessage?.Invoke("WebSocket connected.");
 
-                    // start receive loop without awaiting
                     _ = ReceiveLoopAsync(_ws);
 
-                    // send subscribe for both channels
                     var subscribeCmd = new
                     {
                         command = "subscribe",
                         identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" })
                     };
+                    InfoMessage?.Invoke("Subscribing to CommandChannel...");
                     await SendObjectAsync(subscribeCmd);
 
                     var subscribeRtc = new
@@ -66,6 +66,7 @@ namespace recontrol_win.Tools
                         command = "subscribe",
                         identifier = JsonSerializer.Serialize(new { channel = "WebRtcChannel" })
                     };
+                    InfoMessage?.Invoke("Subscribing to WebRtcChannel...");
                     await SendObjectAsync(subscribeRtc);
 
                     return true;
@@ -74,17 +75,15 @@ namespace recontrol_win.Tools
                 {
                     InfoMessage?.Invoke($"Connect attempt {attempt + 1} failed: {ex.Message}");
 
-                    // if first attempt, try to refresh tokens and retry
                     if (attempt == 0)
                     {
                         var refreshed = await _refreshTokens();
+                        InfoMessage?.Invoke($"Refresh token result: {refreshed}");
                         if (!refreshed)
                         {
                             InfoMessage?.Invoke("Token refresh failed");
                             break;
                         }
-
-                        // otherwise loop will retry
                         continue;
                     }
 
@@ -104,15 +103,15 @@ namespace recontrol_win.Tools
                 while (ws != null && ws.State == WebSocketState.Open)
                 {
                     var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                    InfoMessage?.Invoke($"WS recv: type={result.MessageType} end={result.EndOfMessage} bytes={result.Count}");
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
+                        InfoMessage?.Invoke($"WS closing: {ws.CloseStatus} {ws.CloseStatusDescription}");
                         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                         break;
                     }
 
                     var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
-
-                    // Notify raw text; caller may parse JSON
                     MessageReceived?.Invoke(text);
                 }
             }
@@ -122,11 +121,13 @@ namespace recontrol_win.Tools
             }
 
             ConnectionStatusChanged?.Invoke(false);
+            InfoMessage?.Invoke("WebSocket disconnected.");
         }
 
         public async Task SendObjectAsync(object obj)
         {
             var json = JsonSerializer.Serialize(obj);
+            InfoMessage?.Invoke($"WS send object: {json}");
             await SendAsync(json);
         }
 
@@ -134,6 +135,7 @@ namespace recontrol_win.Tools
         {
             if (_ws == null || _ws.State != WebSocketState.Open) throw new InvalidOperationException("WebSocket is not connected");
             var bytes = Encoding.UTF8.GetBytes(message);
+            InfoMessage?.Invoke($"WS send text: {message}");
             await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
         }
 
@@ -141,9 +143,17 @@ namespace recontrol_win.Tools
         {
             if (_ws != null)
             {
-                if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
+                try
                 {
-                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
+                    InfoMessage?.Invoke($"Closing existing WebSocket state={_ws.State}");
+                    if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
+                    {
+                        await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    InfoMessage?.Invoke($"Error closing WebSocket: {ex.Message}");
                 }
 
                 _ws.Dispose();
@@ -153,6 +163,7 @@ namespace recontrol_win.Tools
 
         public async Task DisconnectAsync()
         {
+            InfoMessage?.Invoke("DisconnectAsync called");
             await CloseInternalAsync();
             ConnectionStatusChanged?.Invoke(false);
         }

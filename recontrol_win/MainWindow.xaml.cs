@@ -40,14 +40,14 @@ namespace recontrol_win
 
             // initialize command handling
             _cmdParser = new CommandJsonParser();
-            _screenService = new ScreenService(); // This is still needed for your *old* screen.start command
+            _screenService = new ScreenService(); // old screen.start commands still work
             _powerService = new PowerService(new TerminalService());
             _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService(), _screenService, _powerService, async (msg) => { try { await _wsClient.SendAsync(msg); } catch { } });
 
             // WebRTC helper: use ws send to relay signaling to Rails WebRtcChannel
-            // --- THIS IS THE FIX ---
             _webrtc = new WebRTCClient(async (signal) =>
             {
+                Debug.WriteLine($"WebRTC SEND SIGNAL: {JsonSerializer.Serialize(signal)}");
                 var data = new
                 {
                     command = "message",
@@ -55,10 +55,12 @@ namespace recontrol_win
                     data = JsonSerializer.Serialize(new { command = "signal", payload = signal })
                 };
                 await _wsClient.SendObjectAsync(data);
-            }); // <-- No more _screenService argument
-            // ---------------------
-
-            _webrtc.Log += (m) => Debug.WriteLine($"WebRTC: {m}");
+            });
+            _webrtc.Log += (m) =>
+            {
+                Debug.WriteLine($"WebRTC: {m}");
+                AddMessage("webrtc", "log", new { msg = m });
+            };
 
             _ = ConnectAsync();
         }
@@ -75,11 +77,13 @@ namespace recontrol_win
 
         private async Task ConnectAsync()
         {
+            Debug.WriteLine($"Connecting to WS: {_wsUri}");
             await _wsClient.ConnectAsync();
         }
 
         private void OnConnectionStatusChanged(bool connected)
         {
+            Debug.WriteLine($"WS Connected={connected}");
             Dispatcher.Invoke(() =>
             {
                 StatusText.Text = connected ? "Connected" : "Disconnected";
@@ -89,13 +93,12 @@ namespace recontrol_win
 
         private void OnMessageReceived(string text)
         {
-            // try parse as JSON and display message field if present
-            Debug.WriteLine($"Received: {text}");
+            Debug.WriteLine($"WS Received: {text}");
             try
             {
                 using var doc = JsonDocument.Parse(text);
 
-                // ActionCable wraps messages. If an identifier exists, we can route based on channel.
+                // Route by channel identifier
                 if (doc.RootElement.TryGetProperty("identifier", out var identifierEl) && identifierEl.ValueKind == JsonValueKind.String)
                 {
                     var identifierStr = identifierEl.GetString();
@@ -105,13 +108,14 @@ namespace recontrol_win
                         {
                             using var idDoc = JsonDocument.Parse(identifierStr);
                             var chan = idDoc.RootElement.TryGetProperty("channel", out var chEl) ? chEl.GetString() : null;
+                            Debug.WriteLine($"WS Message for channel: {chan}");
                             if (chan == "WebRtcChannel")
                             {
-                                // Signaling messages will be in message.payload
                                 if (doc.RootElement.TryGetProperty("message", out var rtcMsg) && rtcMsg.ValueKind == JsonValueKind.Object)
                                 {
                                     if (rtcMsg.TryGetProperty("payload", out var payload))
                                     {
+                                        Debug.WriteLine($"WebRTC SIGNAL RECV: {payload.GetRawText()}");
                                         _ = _webrtc.HandleSignalAsync(payload);
                                         AddMessage("webrtc", "signal", new { raw = payload.GetRawText() });
                                         return;
@@ -119,13 +123,15 @@ namespace recontrol_win
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Parse identifier failed: {ex.Message}");
+                        }
                     }
                 }
 
                 if (doc.RootElement.TryGetProperty("message", out var message))
                 {
-                    // Only treat as structured message when it's a JSON object
                     if (message.ValueKind == JsonValueKind.Object)
                     {
                         var from = "unknown";
@@ -140,22 +146,21 @@ namespace recontrol_win
                         if (message.TryGetProperty("payload", out var payloadProp))
                             payloadRaw = payloadProp.GetRawText();
 
-                        // show the message in UI (display raw payload text)
                         AddMessage(from, command, new { raw = payloadRaw });
 
-                        // Handle local webrtc.start/stop convenience commands
                         if (command == "webrtc.start")
                         {
+                            Debug.WriteLine("Triggering webrtc.start (offerer)");
                             _ = _webrtc.StartAsOffererAsync();
                             return;
                         }
                         else if (command == "webrtc.stop")
                         {
+                            Debug.WriteLine("Triggering webrtc.stop");
                             _webrtc.StopStreaming();
                             return;
                         }
 
-                        // Dispatch command in background to avoid blocking receive loop
                         _ = Task.Run(async () =>
                         {
                             Debug.WriteLine($"Dispatching command: {command} from {from}");
@@ -193,28 +198,27 @@ namespace recontrol_win
                         return;
                     }
 
-                    // fallback: 'message' exists but is not an object (e.g. ping with number)
                     AddMessage("server", "raw", new { text });
                     return;
                 }
 
-                // fallback: no 'message' property
                 AddMessage("server", "raw", new { text });
             }
             catch (Exception ex)
             {
-                // include exception message for easier debugging
                 AddMessage("server", "raw", new { text, error = ex.Message });
             }
         }
 
         private void OnInfoMessage(string info)
         {
+            Debug.WriteLine($"WS Info: {info}");
             AddMessage("system", "info", new { msg = info });
         }
 
         private async void SendPingButton_Click(object sender, RoutedEventArgs e)
         {
+            Debug.WriteLine("SendPingButton_Click");
             var payload = new
             {
                 command = "ping",

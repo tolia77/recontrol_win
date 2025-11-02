@@ -15,28 +15,28 @@ namespace recontrol_win.Tools
 {
     /// <summary>
     /// Minimal WebRTC helper that handles signaling and streams the screen as a NATIVE VIDEO TRACK.
+    /// Adds verbose logging to trace the full lifecycle.
     /// </summary>
     internal sealed class WebRTCClient : IDisposable
     {
         private readonly Func<object, Task> _sendSignal;
-        // private readonly ScreenService _screenService; // <-- REMOVED
         private RTCPeerConnection? _pc;
-        // private RTCDataChannel? _dc; // <-- REMOVED
-        private WindowsVideoEndPoint? _videoSource; // <-- ADDED
+        private WindowsVideoEndPoint? _videoSource; // video source/encoder
         private bool _disposed;
 
         public event Action<string>? Log;
 
-        // UPDATED CONSTRUCTOR
         public WebRTCClient(Func<object, Task> sendSignal)
         {
             _sendSignal = sendSignal ?? throw new ArgumentNullException(nameof(sendSignal));
-            // _screenService = screenService ?? throw new ArgumentNullException(nameof(screenService)); // <-- REMOVED
+            Log?.Invoke("WebRTCClient constructed");
         }
 
         private void EnsurePeerConnection()
         {
             if (_pc != null) return;
+
+            LogInfo("Creating RTCPeerConnection...");
 
             var config = new RTCConfiguration
             {
@@ -46,13 +46,30 @@ namespace recontrol_win.Tools
                 }
             };
 
-            _pc = new RTCPeerConnection(config);
+            try
+            {
+                _pc = new RTCPeerConnection(config);
+                LogInfo("RTCPeerConnection created.");
+                LogInfo($"ICE servers: {string.Join(", ", config.iceServers?.ConvertAll(s => s.urls) ?? new List<string>())}");
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to create RTCPeerConnection: {ex.Message}");
+                throw;
+            }
 
             _pc.onicecandidate += async (candidate) =>
             {
                 try
                 {
-                    if (candidate == null || string.IsNullOrWhiteSpace(candidate.candidate)) return;
+                    if (candidate == null)
+                    {
+                        LogInfo("onicecandidate: null (end of gathering or no candidate)");
+                        return;
+                    }
+
+                    LogInfo($"onicecandidate: {candidate.candidate} | sdpMid={candidate.sdpMid} | sdpMLineIndex={candidate.sdpMLineIndex}");
+
                     await _sendSignal(new
                     {
                         type = "ice_candidate",
@@ -60,87 +77,150 @@ namespace recontrol_win.Tools
                         sdpMid = candidate.sdpMid,
                         sdpMLineIndex = (int)candidate.sdpMLineIndex
                     });
+                    LogInfo("ICE candidate signal sent.");
                 }
                 catch (Exception ex)
                 {
-                    Log?.Invoke($"onicecandidate send failed: {ex.Message}");
+                    LogError($"onicecandidate send failed: {ex.Message}");
                 }
             };
 
             _pc.onconnectionstatechange += (state) =>
             {
-                Log?.Invoke($"PeerConnection state: {state}");
+                LogInfo($"PeerConnection state: {state}");
                 if (state == RTCPeerConnectionState.closed || state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.disconnected)
                 {
-                    StopStreaming(); // This will now close the whole connection
+                    LogWarn("PC in terminal state. Stopping streaming.");
+                    StopStreaming();
                 }
             };
 
-            // REMOVED: _pc.ondatachannel
+            // Optional RTCP hooks: just note they fired.
+            try
+            {
+                _pc.OnReceiveReport += (ep, media, rr) => LogInfo($"RTCP RR received: remote={ep}, media={media}");
+                _pc.OnSendReport += (media, sr) => LogInfo($"RTCP SR sent: media={media}");
+            }
+            catch { }
         }
-
-        // REMOVED: private void AttachDataChannel(RTCDataChannel dc) { ... }
 
         public async Task StartAsOffererAsync()
         {
             EnsurePeerConnection();
-            if (_pc == null) return;
-
-            try
+            if (_pc == null)
             {
-                // --- THIS IS THE KEY CHANGE ---
-                // 1. Create the native video source
-                _videoSource = new WindowsVideoEndPoint(new VpxVideoEncoder());
-                var videoTrack = new MediaStreamTrack(_videoSource.GetVideoSourceFormats());
-                _pc.addTrack(videoTrack);
-
-                // 2. Start capturing
-                await _videoSource.StartVideo();
-                // ------------------------------
-            }
-            catch (Exception ex)
-            {
-                Log?.Invoke($"Failed to add video track: {ex.Message}");
+                LogError("StartAsOffererAsync: PC is null");
                 return;
             }
 
-            // REMOVED: _pc.createDataChannel("screen");
+            try
+            {
+                LogInfo("Creating WindowsVideoEndPoint with VPX encoder...");
+                _videoSource = new WindowsVideoEndPoint(new VpxVideoEncoder());
+                var formats = _videoSource.GetVideoSourceFormats();
+                LogInfo($"Video formats available: {formats?.Count}");
+                if (formats != null)
+                {
+                    for (int i = 0; i < formats.Count; i++)
+                    {
+                        LogInfo($"Format[{i}]: {formats[i]}");
+                    }
+                }
 
-            var offer = _pc.CreateOffer(IPAddress.Any);
-            await _sendSignal(new { type = "offer", sdp = offer.ToString() });
+                var videoTrack = new MediaStreamTrack(formats);
+                _pc.addTrack(videoTrack);
+                LogInfo("Video track added to RTCPeerConnection.");
+
+                LogInfo("Starting video capture...");
+                await _videoSource.StartVideo();
+                LogInfo("Video capture started.");
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to add video track/start capture: {ex.Message}");
+                return;
+            }
+
+            try
+            {
+                LogInfo("Creating SDP offer...");
+                var offer = _pc.CreateOffer(IPAddress.Any);
+                var sdp = offer.ToString();
+                LogInfo($"Offer created. SDP length={sdp?.Length}");
+                await _sendSignal(new { type = "offer", sdp });
+                LogInfo("Offer signal sent.");
+            }
+            catch (Exception ex)
+            {
+                LogError($"CreateOffer/send failed: {ex.Message}");
+            }
         }
 
         public async Task HandleSignalAsync(JsonElement signalingPayload)
         {
+            try
+            {
+                LogInfo($"HandleSignalAsync payload: {signalingPayload.GetRawText()}");
+            }
+            catch { }
+
             var type = signalingPayload.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
-            if (string.IsNullOrWhiteSpace(type)) return;
+            if (string.IsNullOrWhiteSpace(type))
+            {
+                LogWarn("Signal missing 'type'. Ignored.");
+                return;
+            }
 
             EnsurePeerConnection();
-            if (_pc == null) return;
+            if (_pc == null)
+            {
+                LogError("HandleSignalAsync: PC is null");
+                return;
+            }
 
             switch (type)
             {
                 case "offer":
                     {
-                        // This client (WPF) should not be receiving offers, only creating them.
-                        // But we can implement it for completeness.
-                        Log?.Invoke("Received offer (unexpected for desktop client)");
+                        LogWarn("Received offer (unexpected for desktop client)");
                         var sdpStr = signalingPayload.GetProperty("sdp").GetString();
+                        LogInfo($"Remote offer SDP length={sdpStr?.Length}");
                         if (string.IsNullOrWhiteSpace(sdpStr)) break;
 
-                        var remote = SDP.ParseSDPDescription(sdpStr);
-                        _pc.SetRemoteDescription(SdpType.offer, remote);
+                        try
+                        {
+                            var remote = SDP.ParseSDPDescription(sdpStr);
+                            _pc.SetRemoteDescription(SdpType.offer, remote);
+                            LogInfo("Remote offer set.");
 
-                        var answer = _pc.CreateAnswer(IPAddress.Any);
-                        await _sendSignal(new { type = "answer", sdp = answer.ToString() });
+                            LogInfo("Creating answer...");
+                            var answer = _pc.CreateAnswer(IPAddress.Any);
+                            var asdp = answer.ToString();
+                            LogInfo($"Answer created. SDP length={asdp?.Length}");
+                            await _sendSignal(new { type = "answer", sdp = asdp });
+                            LogInfo("Answer signal sent.");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError($"Error handling offer: {ex.Message}");
+                        }
                         break;
                     }
                 case "answer":
                     {
                         var sdpStr = signalingPayload.GetProperty("sdp").GetString();
+                        LogInfo($"Remote answer SDP length={sdpStr?.Length}");
                         if (string.IsNullOrWhiteSpace(sdpStr)) break;
-                        var remote = SDP.ParseSDPDescription(sdpStr);
-                        _pc.SetRemoteDescription(SdpType.answer, remote);
+                        try
+                        {
+                            var remote = SDP.ParseSDPDescription(sdpStr);
+                            _pc.SetRemoteDescription(SdpType.answer, remote);
+                            LogInfo("Remote answer set.");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError($"SetRemoteDescription(answer) failed: {ex.Message}");
+                        }
                         break;
                     }
                 case "ice_candidate":
@@ -148,27 +228,42 @@ namespace recontrol_win.Tools
                         var candStr = signalingPayload.TryGetProperty("candidate", out var c) ? c.GetString() : null;
                         var sdpMid = signalingPayload.TryGetProperty("sdpMid", out var mid) ? mid.GetString() : null;
                         var sdpMLineIndex = signalingPayload.TryGetProperty("sdpMLineIndex", out var mline) ? mline.GetInt32() : (int?)null;
+                        LogInfo($"ICE candidate recv: cand={(candStr ?? "null").Substring(0, Math.Min(64, candStr?.Length ?? 0))}..., mid={sdpMid}, mline={sdpMLineIndex}");
                         if (!string.IsNullOrWhiteSpace(candStr) && sdpMLineIndex.HasValue)
                         {
-                            var init = new RTCIceCandidateInit
+                            try
                             {
-                                candidate = candStr,
-                                sdpMid = sdpMid,
-                                sdpMLineIndex = (ushort)sdpMLineIndex.Value
-                            };
-                            _pc.addIceCandidate(init);
+                                var init = new RTCIceCandidateInit
+                                {
+                                    candidate = candStr,
+                                    sdpMid = sdpMid,
+                                    sdpMLineIndex = (ushort)sdpMLineIndex.Value
+                                };
+                                _pc.addIceCandidate(init);
+                                LogInfo("ICE candidate added to PC.");
+                            }
+                            catch (Exception ex)
+                            {
+                                LogError($"addIceCandidate failed: {ex.Message}");
+                            }
+                        }
+                        else
+                        {
+                            LogWarn("ICE candidate missing fields. Ignored.");
                         }
                         break;
                     }
+                default:
+                    LogWarn($"Unknown signal type '{type}'.");
+                    break;
             }
         }
 
-        // This method now stops the *entire* connection
         public void StopStreaming()
         {
-            Log?.Invoke("Stopping WebRTC Connection...");
-            try { _videoSource?.CloseVideo(); } catch { }
-            try { _pc?.Close("stop"); } catch { }
+            LogInfo("Stopping WebRTC Connection...");
+            try { _videoSource?.CloseVideo(); LogInfo("Video source closed."); } catch (Exception ex) { LogError($"CloseVideo error: {ex.Message}"); }
+            try { _pc?.Close("stop"); LogInfo("Peer connection closed."); } catch (Exception ex) { LogError($"PC close error: {ex.Message}"); }
             _videoSource = null;
             _pc = null;
         }
@@ -177,7 +272,12 @@ namespace recontrol_win.Tools
         {
             if (_disposed) return;
             _disposed = true;
+            LogInfo("Disposing WebRTCClient...");
             StopStreaming();
         }
+
+        private void LogInfo(string msg) => Log?.Invoke($"INFO: {msg}");
+        private void LogWarn(string msg) => Log?.Invoke($"WARN: {msg}");
+        private void LogError(string msg) => Log?.Invoke($"ERROR: {msg}");
     }
 }
