@@ -21,6 +21,7 @@ namespace recontrol_win.Internal
         public void Start(Action<byte[]> onFrame, int qualityPercent = 30, int intervalMs = 200)
         {
             if (IsRunning) return;
+            InternalLogger.Log($"ScreenService.Start called: quality={qualityPercent}, intervalMs={intervalMs}");
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
             _streamTask = Task.Run(async () =>
@@ -34,8 +35,9 @@ namespace recontrol_win.Internal
                             var bytes = CaptureJpeg(qualityPercent);
                             onFrame?.Invoke(bytes);
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            InternalLogger.LogException("ScreenService.Capture/OnFrame", ex);
                             // swallow per-frame errors
                         }
 
@@ -48,12 +50,13 @@ namespace recontrol_win.Internal
 
         public void Stop()
         {
+            InternalLogger.Log("ScreenService.Stop called");
             try
             {
                 _cts?.Cancel();
                 _streamTask?.Wait(500);
             }
-            catch { }
+            catch (Exception ex) { InternalLogger.LogException("ScreenService.Stop", ex); }
             finally
             {
                 _streamTask = null;
@@ -93,6 +96,7 @@ namespace recontrol_win.Internal
 
         public void Dispose()
         {
+            InternalLogger.Log("ScreenService.Dispose called");
             Stop();
         }
     }

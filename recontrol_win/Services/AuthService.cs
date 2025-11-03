@@ -1,4 +1,5 @@
 ﻿using recontrol_win.Tools;
+using recontrol_win.Internal;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
@@ -28,6 +29,7 @@ namespace recontrol_win.Services
 
         public async Task<HttpResponseMessage> LoginAsync(string email, string password, string? deviceId = null)
         {
+            InternalLogger.Log($"AuthService.LoginAsync called: email={email}, deviceId={deviceId}");
             if (string.IsNullOrWhiteSpace(email)) throw new ArgumentNullException(nameof(email));
             if (string.IsNullOrWhiteSpace(password)) throw new ArgumentNullException(nameof(password));
 
@@ -54,6 +56,11 @@ namespace recontrol_win.Services
                 var refresh = root.GetProperty("refresh_token").GetString() ?? string.Empty;
 
                 _tokenStore.Save(new TokenData(userId, devId, access, refresh));
+                InternalLogger.Log($"AuthService.LoginAsync success: userId={userId}, deviceId={devId}");
+            }
+            else
+            {
+                InternalLogger.Log($"AuthService.LoginAsync failed: status={response.StatusCode}");
             }
 
             return response;
@@ -61,16 +68,23 @@ namespace recontrol_win.Services
 
         public async Task<bool> RefreshTokensAsync()
         {
+            InternalLogger.Log("AuthService.RefreshTokensAsync called");
             var refreshToken = GetRefreshToken();
             if (string.IsNullOrWhiteSpace(refreshToken))
+            {
+                InternalLogger.Log("AuthService.RefreshTokensAsync: no refresh token");
                 return false;
+            }
 
             var headers = new Dictionary<string, string> { { "Refresh-Token", refreshToken } };
             HttpContent empty = new StringContent(string.Empty);
 
             var response = await _apiClient.PostAsync("/auth/refresh", empty, headers);
             if (!response.IsSuccessStatusCode)
+            {
+                InternalLogger.Log($"AuthService.RefreshTokensAsync failed: status={response.StatusCode}");
                 return false;
+            }
 
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
@@ -80,7 +94,10 @@ namespace recontrol_win.Services
             var newRefresh = root.TryGetProperty("refresh_token", out var rt) ? rt.GetString() : refreshToken;
 
             if (string.IsNullOrWhiteSpace(newAccess))
+            {
+                InternalLogger.Log("AuthService.RefreshTokensAsync: no new access token");
                 return false;
+            }
 
             var current = _tokenStore.Load();
             if (current != null)
@@ -89,6 +106,7 @@ namespace recontrol_win.Services
                 _tokenStore.Save(updated);
             }
 
+            InternalLogger.Log("AuthService.RefreshTokensAsync succeeded");
             return true;
         }
 

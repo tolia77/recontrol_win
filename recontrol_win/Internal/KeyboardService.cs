@@ -22,18 +22,21 @@ namespace recontrol_win.Internal
     {
         public void KeyDown(VirtualKey key)
         {
+            InternalLogger.Log($"KeyDown called: key={key}");
             EnsureWindows();
             SendKey((ushort)key, 0);
         }
 
         public void KeyUp(VirtualKey key)
         {
+            InternalLogger.Log($"KeyUp called: key={key}");
             EnsureWindows();
             SendKey((ushort)key, KEYEVENTF_KEYUP);
         }
 
         public void Press(VirtualKey key, int holdMs = 30)
         {
+            InternalLogger.Log($"Press called: key={key}, holdMs={holdMs}");
             KeyDown(key);
             if (holdMs > 0) Thread.Sleep(holdMs);
             KeyUp(key);
@@ -42,7 +45,10 @@ namespace recontrol_win.Internal
         private static void EnsureWindows()
         {
             if (!OperatingSystem.IsWindows())
+            {
+                InternalLogger.Log("EnsureWindows failed: not running on Windows");
                 throw new PlatformNotSupportedException("KeyboardService currently supports only Windows (user32 SendInput).");
+            }
         }
 
         private void SendKey(ushort vk, uint flags)
@@ -61,6 +67,7 @@ namespace recontrol_win.Internal
             if (sent == 0)
             {
                 int err = Marshal.GetLastWin32Error();
+                InternalLogger.Log($"SendInput (keyboard) failed. Win32Error={err}, vk={vk}, flags={flags}");
                 throw new InvalidOperationException($"SendInput (keyboard) failed. Win32Error={err}");
             }
         }

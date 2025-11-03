@@ -16,6 +16,7 @@ namespace recontrol_win.Internal
         // Public API
         public void MoveMouseTo(int x, int y)
         {
+            InternalLogger.Log($"MoveMouseTo called: x={x}, y={y}");
             EnsureWindows();
 
             // Use the virtual screen to properly support multi-monitor and DPI scenarios
@@ -33,6 +34,7 @@ namespace recontrol_win.Internal
 
         public void MouseDown(MouseButton button)
         {
+            InternalLogger.Log($"MouseDown called: button={button}");
             EnsureWindows();
             var flags = button switch
             {
@@ -46,6 +48,7 @@ namespace recontrol_win.Internal
 
         public void MouseUp(MouseButton button)
         {
+            InternalLogger.Log($"MouseUp called: button={button}");
             EnsureWindows();
             var flags = button switch
             {
@@ -59,6 +62,7 @@ namespace recontrol_win.Internal
 
         public void Scroll(int wheelClicks)
         {
+            InternalLogger.Log($"Scroll called: wheelClicks={wheelClicks}");
             EnsureWindows();
             // Each wheel click = WHEEL_DELTA (120)
             int amount = WHEEL_DELTA * wheelClicks;
@@ -67,6 +71,7 @@ namespace recontrol_win.Internal
 
         public void Click(MouseButton button = MouseButton.Left, int delayBetweenMs = 30)
         {
+            InternalLogger.Log($"Click called: button={button}, delayMs={delayBetweenMs}");
             MouseDown(button);
             Thread.Sleep(delayBetweenMs);
             MouseUp(button);
@@ -74,6 +79,7 @@ namespace recontrol_win.Internal
 
         public void DoubleClick(int delayBetweenClicksMs = 120)
         {
+            InternalLogger.Log($"DoubleClick called: delayBetweenClicksMs={delayBetweenClicksMs}");
             Click(MouseButton.Left);
             Thread.Sleep(delayBetweenClicksMs);
             Click(MouseButton.Left);
@@ -85,7 +91,10 @@ namespace recontrol_win.Internal
         private static void EnsureWindows()
         {
             if (!OperatingSystem.IsWindows())
+            {
+                InternalLogger.Log("EnsureWindows failed: not running on Windows");
                 throw new PlatformNotSupportedException("MouseService currently supports only Windows (user32 SendInput).");
+            }
         }
 
         private static int NormalizeToAbsolute(int value, int range)
@@ -122,6 +131,7 @@ namespace recontrol_win.Internal
             if (sent == 0)
             {
                 int err = Marshal.GetLastWin32Error();
+                InternalLogger.Log($"SendInput failed. Win32Error={err}, flags={flags}, dx={dx}, dy={dy}, mouseData={mouseData}");
                 throw new InvalidOperationException($"SendInput failed. Win32Error={err}");
             }
         }

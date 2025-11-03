@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using recontrol_win.Internal;
 
 namespace recontrol_win.Tools
 {
@@ -37,6 +38,7 @@ namespace recontrol_win.Tools
                 if (string.IsNullOrWhiteSpace(token))
                 {
                     InfoMessage?.Invoke("No access token available");
+                    InternalLogger.Log("WebSocketClient.ConnectAsync: no access token available");
                     return false;
                 }
 
@@ -46,6 +48,7 @@ namespace recontrol_win.Tools
 
                     _ws = new ClientWebSocket();
                     var uriWithToken = new Uri($"{_uri}?access_token={Uri.EscapeDataString(token)}");
+                    InternalLogger.Log($"WebSocketClient.ConnectAsync attempt {attempt + 1}: uri={uriWithToken}");
                     await _ws.ConnectAsync(uriWithToken, CancellationToken.None);
 
                     ConnectionStatusChanged?.Invoke(true);
@@ -66,11 +69,13 @@ namespace recontrol_win.Tools
                 catch (Exception ex)
                 {
                     InfoMessage?.Invoke($"Connect attempt {attempt + 1} failed: {ex.Message}");
+                    InternalLogger.LogException("WebSocketClient.ConnectAsync", ex);
 
                     // if first attempt, try to refresh tokens and retry
                     if (attempt == 0)
                     {
                         var refreshed = await _refreshTokens();
+                        InternalLogger.Log($"WebSocketClient.ConnectAsync token refresh result: {refreshed}");
                         if (!refreshed)
                         {
                             InfoMessage?.Invoke("Token refresh failed");
@@ -86,6 +91,7 @@ namespace recontrol_win.Tools
             }
 
             ConnectionStatusChanged?.Invoke(false);
+            InternalLogger.Log("WebSocketClient.ConnectAsync failed after retries");
             return false;
         }
 
@@ -107,11 +113,13 @@ namespace recontrol_win.Tools
 
                     // Notify raw text; caller may parse JSON
                     MessageReceived?.Invoke(text);
+                    InternalLogger.Log($"WebSocketClient.MessageReceived: {text}");
                 }
             }
             catch (Exception ex)
             {
                 InfoMessage?.Invoke($"ReceiveLoop error: {ex.Message}");
+                InternalLogger.LogException("WebSocketClient.ReceiveLoopAsync", ex);
             }
 
             ConnectionStatusChanged?.Invoke(false);
@@ -125,6 +133,7 @@ namespace recontrol_win.Tools
 
         public async Task SendAsync(string message)
         {
+            InternalLogger.Log($"WebSocketClient.SendAsync: {message}");
             if (_ws == null || _ws.State != WebSocketState.Open) throw new InvalidOperationException("WebSocket is not connected");
             var bytes = Encoding.UTF8.GetBytes(message);
             await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
@@ -148,6 +157,7 @@ namespace recontrol_win.Tools
         {
             await CloseInternalAsync();
             ConnectionStatusChanged?.Invoke(false);
+            InternalLogger.Log("WebSocketClient.DisconnectAsync called");
         }
 
         public void Dispose()

@@ -36,12 +36,14 @@ namespace recontrol_win.Internal
         
         public string Execute(string command, int timeoutMs = 30000)
         {
+            InternalLogger.Log($"TerminalService.Execute called: command={command}, timeoutMs={timeoutMs}");
             EnsureWindows();
             return ExecuteInternal("cmd.exe", $"/C {command}", timeoutMs);
         }
 
         public string Shell(string command, int timeoutMs = 30000)
         {
+            InternalLogger.Log($"TerminalService.Shell called: command={command}, timeoutMs={timeoutMs}");
             EnsureWindows();
             if (OperatingSystem.IsWindows())
                 return ExecuteInternal("cmd.exe", $"/C {command}", timeoutMs);
@@ -51,12 +53,14 @@ namespace recontrol_win.Internal
 
         public string PowerShell(string script, int timeoutMs = 30000)
         {
+            InternalLogger.Log($"TerminalService.PowerShell called: script={script}, timeoutMs={timeoutMs}");
             EnsureWindows();
             return ExecuteInternal("powershell.exe", $"-NoProfile -Command \"{script}\"", timeoutMs);
         }
 
         public string RunAs(string command)
         {
+            InternalLogger.Log($"TerminalService.RunAs called: command={command}");
             EnsureWindows();
             if (!IsAdministrator())
                 throw new UnauthorizedAccessException("This operation requires administrator privileges. Run as admin.");
@@ -87,6 +91,7 @@ namespace recontrol_win.Internal
 
         public List<ProcessInfo> ListProcesses()
         {
+            InternalLogger.Log("TerminalService.ListProcesses called");
             return Process.GetProcesses()
                 .Select(p => {
                     try
@@ -100,8 +105,9 @@ namespace recontrol_win.Internal
                             StartTime = p.StartTime
                         };
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        InternalLogger.LogException("TerminalService.ListProcesses (process)", ex);
                         return null;
                     }
                 })
@@ -113,6 +119,7 @@ namespace recontrol_win.Internal
         {
             try
             {
+                InternalLogger.Log($"TerminalService.GetProcessInfo called: pid={pid}");
                 var p = Process.GetProcessById(pid);
                 return new ProcessInfo
                 {
@@ -123,14 +130,16 @@ namespace recontrol_win.Internal
                     StartTime = p.StartTime
                 };
             }
-            catch
+            catch (Exception ex)
             {
+                InternalLogger.LogException("TerminalService.GetProcessInfo", ex);
                 return null;
             }
         }
 
         public bool KillProcess(int pid, bool force = false)
         {
+            InternalLogger.Log($"TerminalService.KillProcess called: pid={pid}, force={force}");
             try
             {
                 var process = Process.GetProcessById(pid);
@@ -140,14 +149,16 @@ namespace recontrol_win.Internal
                     process.Kill();
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                InternalLogger.LogException("TerminalService.KillProcess", ex);
                 return false;
             }
         }
 
         public int StartProcess(string fileName, string arguments = "", bool redirectOutput = false)
         {
+            InternalLogger.Log($"TerminalService.StartProcess called: fileName={fileName}, arguments={arguments}, redirectOutput={redirectOutput}");
             var psi = new ProcessStartInfo
             {
                 FileName = fileName,
@@ -171,6 +182,7 @@ namespace recontrol_win.Internal
 
         public Dictionary<string, string> GetEnvironment()
         {
+            InternalLogger.Log("TerminalService.GetEnvironment called");
             return Environment.GetEnvironmentVariables()
                 .Cast<System.Collections.DictionaryEntry>()
                 .ToDictionary(e => e.Key.ToString()!, e => e.Value?.ToString() ?? "");
@@ -180,6 +192,7 @@ namespace recontrol_win.Internal
 
         public void SetCwd(string path)
         {
+            InternalLogger.Log($"TerminalService.SetCwd called: path={path}");
             if (!Directory.Exists(path))
                 throw new DirectoryNotFoundException($"Directory not found: {path}");
             _workingDirectory = Path.GetFullPath(path);
@@ -187,12 +200,14 @@ namespace recontrol_win.Internal
 
         public string WhoAmI()
         {
+            InternalLogger.Log("TerminalService.WhoAmI called");
             var identity = WindowsIdentity.GetCurrent();
             return $"{Environment.UserDomainName}\\{Environment.UserName} (Admin: {IsAdministrator()})";
         }
 
         public TimeSpan GetUptime()
         {
+            InternalLogger.Log("TerminalService.GetUptime called");
             return TimeSpan.FromMilliseconds(Environment.TickCount64);
         }
 
@@ -200,6 +215,7 @@ namespace recontrol_win.Internal
 
         public void Abort()
         {
+            InternalLogger.Log("TerminalService.Abort called");
             _abortTokenSource?.Cancel();
         }
 
@@ -208,6 +224,7 @@ namespace recontrol_win.Internal
 
         private string ExecuteInternal(string fileName, string arguments, int timeoutMs)
         {
+            InternalLogger.Log($"TerminalService.ExecuteInternal called: fileName={fileName}, arguments={arguments}, timeoutMs={timeoutMs}");
             _abortTokenSource?.Dispose();
             _abortTokenSource = new CancellationTokenSource();
             var token = _abortTokenSource.Token;
@@ -223,23 +240,31 @@ namespace recontrol_win.Internal
                 WorkingDirectory = _workingDirectory
             };
 
-            using var process = Process.Start(psi);
-            if (process == null) throw new InvalidOperationException("Failed to start process.");
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            var completed = process.WaitForExit(timeoutMs);
-            if (!completed || token.IsCancellationRequested)
+            try
             {
-                try { process.Kill(true); } catch { }
-                throw new TimeoutException("Command execution timed out or was aborted.");
+                using var process = Process.Start(psi);
+                if (process == null) throw new InvalidOperationException("Failed to start process.");
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                var completed = process.WaitForExit(timeoutMs);
+                if (!completed || token.IsCancellationRequested)
+                {
+                    try { process.Kill(true); } catch (Exception ex) { InternalLogger.LogException("TerminalService.ExecuteInternal.Kill", ex); }
+                    throw new TimeoutException("Command execution timed out or was aborted.");
+                }
+
+                var output = outputTask.Result;
+                var error = errorTask.Result;
+
+                return string.IsNullOrEmpty(error) ? output : $"{output}\n[ERROR]\n{error}";
             }
-
-            var output = outputTask.Result;
-            var error = errorTask.Result;
-
-            return string.IsNullOrEmpty(error) ? output : $"{output}\n[ERROR]\n{error}";
+            catch (Exception ex)
+            {
+                InternalLogger.LogException("TerminalService.ExecuteInternal", ex);
+                throw;
+            }
         }
 
         private static bool IsAdministrator()
@@ -253,7 +278,10 @@ namespace recontrol_win.Internal
         private static void EnsureWindows()
         {
             if (!OperatingSystem.IsWindows())
+            {
+                InternalLogger.Log("EnsureWindows failed: not running on Windows");
                 throw new PlatformNotSupportedException("TerminalService currently supports only Windows.");
+            }
         }
     }
 }
