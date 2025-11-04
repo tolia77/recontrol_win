@@ -102,14 +102,23 @@ namespace recontrol_win.Tools
             {
                 while (ws != null && ws.State == WebSocketState.Open)
                 {
-                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                    if (result.MessageType == WebSocketMessageType.Close)
+                    var sb = new StringBuilder();
+                    WebSocketReceiveResult? result;
+                    do
                     {
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                        break;
-                    }
+                        result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                            ConnectionStatusChanged?.Invoke(false);
+                            return;
+                        }
 
-                    var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    }
+                    while (!result.EndOfMessage);
+
+                    var text = sb.ToString();
 
                     // Notify raw text; caller may parse JSON
                     MessageReceived?.Invoke(text);

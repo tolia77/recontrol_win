@@ -32,15 +32,16 @@ namespace recontrol_win.Tools
             return args;
         }
 
+        // Return lowercase keys: id, status, result/error
         public string SerializeSuccess(string id, object? result)
         {
-            var response = new SuccessResponse(id, result);
+            var response = new { id = id, status = "success", result = result };
             return JsonSerializer.Serialize(response, _jsonOptions);
         }
 
         public string SerializeError(string id, string error)
         {
-            var response = new ErrorResponse(id, error);
+            var response = new { id = id, status = "error", error = error };
             return JsonSerializer.Serialize(response, _jsonOptions);
         }
     }

@@ -117,7 +117,9 @@ namespace recontrol_win.Tools
 
         /// <summary>
         /// Handle a parsed request by creating and executing a command.
-        /// Returns a JSON response string, or null if no response is needed.
+        /// Returns a JSON response payload string to be sent to the server.
+        /// - If request.Id is provided, returns an RPC-style success/error envelope with lowercase keys.
+        /// - Otherwise, returns a channel payload like { command: "result", id: "...", request: "...", payload: ... }.
         /// </summary>
         public async Task<string?> HandleRequestAsync(BaseRequest request)
         {
@@ -137,7 +139,8 @@ namespace recontrol_win.Tools
                     return _jsonParser.SerializeSuccess(request.Id, result);
                 }
 
-                return null;
+                var channelPayload = new { command = "result", id = request.Id, request = request.Command, payload = result };
+                return JsonSerializer.Serialize(channelPayload);
             }
             catch (Exception ex)
             {
@@ -146,7 +149,8 @@ namespace recontrol_win.Tools
                 {
                     return _jsonParser.SerializeError(request.Id, ex.Message);
                 }
-                return null;
+                var errorPayload = new { command = "error", id = request?.Id, request = request?.Command ?? string.Empty, payload = ex.Message };
+                return JsonSerializer.Serialize(errorPayload);
             }
         }
     }

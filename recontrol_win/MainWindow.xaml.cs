@@ -95,41 +95,87 @@ namespace recontrol_win
                         if (message.TryGetProperty("payload", out var payloadProp))
                             payloadRaw = payloadProp.GetRawText();
 
+                        // Capture optional message id (string or number) for correlation BEFORE scheduling async work
+                        string? id = null;
+                        if (message.TryGetProperty("id", out var idProp))
+                        {
+                            if (idProp.ValueKind == JsonValueKind.String)
+                                id = idProp.GetString();
+                            else if (idProp.ValueKind == JsonValueKind.Number)
+                                id = idProp.GetRawText();
+                        }
+
                         // show the message in UI (display raw payload text)
                         AddMessage(from, command, new { raw = payloadRaw });
 
                         // Dispatch command in background to avoid blocking receive loop
+                        var capturedCommand = command;
+                        var capturedPayloadRaw = payloadRaw;
+                        var capturedId = id;
+
                         _ = Task.Run(async () =>
                         {
-                            Debug.WriteLine($"Dispatching command: {command} from {from}");
+                            Debug.WriteLine($"Dispatching command: {capturedCommand} from {from} (id={capturedId})");
                             try
                             {
-                                using var payloadDoc = JsonDocument.Parse(payloadRaw);
+                                JsonDocument? payloadDoc = null;
+                                try
+                                {
+                                    payloadDoc = JsonDocument.Parse(capturedPayloadRaw);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"Invalid payload JSON: {ex.Message}");
+                                }
+
                                 var request = new BaseRequest
                                 {
-                                    Command = command,
-                                    Payload = payloadDoc.RootElement
+                                    Id = capturedId,
+                                    Command = capturedCommand,
+                                    Payload = payloadDoc?.RootElement ?? default
                                 };
 
-                                var response = await _dispatcher.HandleRequestAsync(request);
-                                Debug.WriteLine($"Command {command} completed. Response: {response}");
+                                var responsePayload = await _dispatcher.HandleRequestAsync(request);
+                                Debug.WriteLine($"Command {capturedCommand} completed. Response: {responsePayload}");
 
-                                if (!string.IsNullOrEmpty(response))
+                                if (!string.IsNullOrEmpty(responsePayload))
                                 {
                                     try
                                     {
-                                        await _wsClient.SendAsync(response);
-                                        Debug.WriteLine($"Sent response for command {command}");
+                                        using var respDoc = JsonDocument.Parse(responsePayload);
+                                        if (respDoc.RootElement.TryGetProperty("Status", out _))
+                                        {
+                                            var rpcData = new
+                                            {
+                                                command = "message",
+                                                identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }),
+                                                data = responsePayload
+                                            };
+                                            await _wsClient.SendObjectAsync(rpcData);
+                                        }
+                                        else
+                                        {
+                                            var channelData = new
+                                            {
+                                                command = "message",
+                                                identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }),
+                                                data = JsonSerializer.Serialize(respDoc.RootElement)
+                                            };
+                                            await _wsClient.SendObjectAsync(channelData);
+                                        }
+                                        Debug.WriteLine($"Sent response for command {capturedCommand}");
                                     }
                                     catch (Exception ex)
                                     {
                                         Debug.WriteLine($"Failed to send response: {ex.Message}");
                                     }
                                 }
+
+                                try { payloadDoc?.Dispose(); } catch { }
                             }
                             catch (Exception ex)
                             {
-                                Debug.WriteLine($"Error dispatching command {command}: {ex.Message}");
+                                Debug.WriteLine($"Error dispatching command {capturedCommand}: {ex.Message}");
                             }
                         });
 
