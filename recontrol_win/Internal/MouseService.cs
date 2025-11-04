@@ -32,13 +32,13 @@ namespace recontrol_win.Internal
                 if (!SetCursorPos(x, y))
                 {
                     int err = Marshal.GetLastWin32Error();
-                    InternalLogger.Log($"SetCursorPos failed. Win32Error={err}, x={x}, y={y}");
+                    //InternalLogger.Log($"SetCursorPos failed. Win32Error={err}, x={x}, y={y}");
                     throw new InvalidOperationException($"SetCursorPos failed. Win32Error={err}");
                 }
             }
             catch (Exception ex)
             {
-                InternalLogger.LogException("MouseService.MoveMouseTo", ex);
+                //InternalLogger.LogException("MouseService.MoveMouseTo", ex);
                 throw;
             }
         }
