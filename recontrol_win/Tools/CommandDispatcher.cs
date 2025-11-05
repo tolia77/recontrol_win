@@ -18,7 +18,6 @@ namespace recontrol_win.Tools
         private readonly PowerService _powerService;
         private readonly Func<string, Task> _sender;
 
-        // Router maps command type -> factory that builds a command from payload
         private readonly Dictionary<string, Func<JsonElement, IAppCommand>> _commandFactories;
 
         public CommandDispatcher(CommandJsonParser jsonParser, KeyboardService keyboardService, MouseService mouseService, TerminalService terminalService, ScreenService screenService, PowerService powerService, Func<string, Task> sender)
