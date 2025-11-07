@@ -8,10 +8,6 @@ namespace recontrol_win
     {
         private void Application_Startup(object sender, StartupEventArgs e)
         {
-            string[] commandArgs = Environment.GetCommandLineArgs();
-
-            StartupManager.HandleInstallerAutoStart(commandArgs);
-
             DotNetEnv.Env.Load();
 
 
