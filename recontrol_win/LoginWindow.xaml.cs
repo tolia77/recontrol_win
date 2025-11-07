@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Threading.Tasks;
 using System.Windows;
 using recontrol_win.Services;
-using MessageBox = System.Windows.MessageBox;
 
 namespace recontrol_win
 {
@@ -29,6 +27,7 @@ namespace recontrol_win
         {
             // Hide error label initially
             ErrorLabel.Visibility = Visibility.Collapsed;
+            ErrorLabel.Text = string.Empty;
 
             // Disable the login button while the request is in progress
             LoginButton.IsEnabled = false;
@@ -36,29 +35,44 @@ namespace recontrol_win
             var email = EmailTextBox.Text?.Trim();
             var password = PasswordBox.Password ?? string.Empty;
 
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            {
+                ErrorLabel.Text = "Email and password are required";
+                ErrorLabel.Visibility = Visibility.Visible;
+                LoginButton.IsEnabled = true;
+                return;
+            }
+
             using var auth = new AuthService();
 
             try
             {
                 var response = await auth.LoginAsync(email, password);
 
+                if (response.IsSuccessStatusCode)
+                {
+                    // Success -> close dialog and let App open main window
+                    this.DialogResult = true;
+                    this.Close();
+                    return;
+                }
+
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                 {
                     // Show invalid credentials error
+                    ErrorLabel.Text = "Invalid email or password";
                     ErrorLabel.Visibility = Visibility.Visible;
                     return;
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
-
-                MessageBox.Show(this, $"Status: {(int)response.StatusCode} - {response.ReasonPhrase}\n\n{content}", "Login response", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                // Optionally close dialog with success to let App open main window
-                // this.DialogResult = true; // enable if server returns success
+                ErrorLabel.Text = string.IsNullOrWhiteSpace(content) ? $"Login failed: {(int)response.StatusCode} {response.ReasonPhrase}" : content;
+                ErrorLabel.Visibility = Visibility.Visible;
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.ToString(), "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ErrorLabel.Text = ex.Message;
+                ErrorLabel.Visibility = Visibility.Visible;
             }
             finally
             {
