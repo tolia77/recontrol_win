@@ -21,6 +21,7 @@ namespace recontrol_win.Tools
 
         // guard to avoid multiple concurrent reconnects
         private int _reconnecting = 0;
+        private volatile bool _disposed = false;
 
         public event Action<string>? MessageReceived;
         public event Action<string>? InfoMessage;
@@ -35,6 +36,8 @@ namespace recontrol_win.Tools
 
         public async Task<bool> ConnectAsync()
         {
+            if (_disposed) return false;
+
             // Try up to 2 attempts: initial, then refresh+retry
             for (int attempt = 0; attempt < 2; attempt++)
             {
@@ -115,6 +118,8 @@ namespace recontrol_win.Tools
                         {
                             await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                             ConnectionStatusChanged?.Invoke(false);
+                            // Start reconnect loop for generic closes (non-unauthorized case)
+                            _ = Task.Run(async () => await HandleReconnectOnDisconnectAsync(reason: null));
                             return;
                         }
 
@@ -139,6 +144,8 @@ namespace recontrol_win.Tools
             {
                 InfoMessage?.Invoke($"ReceiveLoop error: {ex.Message}");
                 InternalLogger.LogException("WebSocketClient.ReceiveLoopAsync", ex);
+                // Assume network disruption; try to reconnect periodically
+                _ = Task.Run(async () => await HandleReconnectOnDisconnectAsync(reason: null));
             }
 
             ConnectionStatusChanged?.Invoke(false);
@@ -191,6 +198,8 @@ namespace recontrol_win.Tools
 
         private async Task HandleReconnectOnDisconnectAsync(string? reason)
         {
+            if (_disposed) return;
+
             // Avoid concurrent reconnect storms
             if (Interlocked.Exchange(ref _reconnecting, 1) == 1)
             {
@@ -202,14 +211,14 @@ namespace recontrol_win.Tools
                 // Close any existing socket
                 await CloseInternalAsync();
 
-                bool shouldRefresh = false;
+                bool unauthorized = false;
                 if (!string.IsNullOrWhiteSpace(reason))
                 {
                     var r = reason!;
-                    shouldRefresh = r.Contains("unauth", StringComparison.OrdinalIgnoreCase) || r.Contains("token", StringComparison.OrdinalIgnoreCase);
+                    unauthorized = r.Contains("unauth", StringComparison.OrdinalIgnoreCase) || r.Contains("token", StringComparison.OrdinalIgnoreCase);
                 }
 
-                if (shouldRefresh)
+                if (unauthorized)
                 {
                     try
                     {
@@ -217,9 +226,13 @@ namespace recontrol_win.Tools
                         InfoMessage?.Invoke($"Token refresh on disconnect: {(refreshed ? "ok" : "failed")}");
                         if (!refreshed)
                         {
-                            // If refresh fails, do not immediately reconnect to avoid loop.
+                            // If refresh fails, do not start a reconnect loop to avoid churn.
                             return;
                         }
+
+                        // Single reconnect attempt after successful refresh
+                        await ConnectAsync();
+                        return;
                     }
                     catch (Exception ex)
                     {
@@ -228,13 +241,34 @@ namespace recontrol_win.Tools
                     }
                 }
 
-                // small backoff
-                await Task.Delay(1000);
-                await ConnectAsync();
+                // Not unauthorized: keep trying to reconnect every 5 seconds until success
+                await ReconnectLoopAsync(TimeSpan.FromSeconds(5));
             }
             finally
             {
                 Interlocked.Exchange(ref _reconnecting, 0);
+            }
+        }
+
+        private async Task ReconnectLoopAsync(TimeSpan interval)
+        {
+            int attempt = 0;
+            while (!_disposed)
+            {
+                attempt++;
+                InfoMessage?.Invoke($"Reconnecting (attempt {attempt})...");
+                var ok = await ConnectAsync();
+                if (ok)
+                {
+                    InfoMessage?.Invoke("Reconnected");
+                    return;
+                }
+
+                try
+                {
+                    await Task.Delay(interval);
+                }
+                catch { }
             }
         }
 
@@ -275,6 +309,7 @@ namespace recontrol_win.Tools
 
         public async Task DisconnectAsync()
         {
+            _disposed = true;
             await CloseInternalAsync();
             ConnectionStatusChanged?.Invoke(false);
             InternalLogger.Log("WebSocketClient.DisconnectAsync called");
@@ -282,6 +317,7 @@ namespace recontrol_win.Tools
 
         public void Dispose()
         {
+            _disposed = true;
             try { _ws?.Dispose(); } catch { }
         }
     }
