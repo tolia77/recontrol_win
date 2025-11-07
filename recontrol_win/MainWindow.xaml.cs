@@ -8,8 +8,6 @@ using System.Windows.Controls;
 using recontrol_win.Services;
 using recontrol_win.Tools;
 using recontrol_win.Internal;
-using WinForms = System.Windows.Forms;
-using Drawing = System.Drawing;
 
 namespace recontrol_win
 {
@@ -29,9 +27,8 @@ namespace recontrol_win
         private readonly ScreenService _screenService;
         private readonly PowerService _powerService;
 
-        // Tray icon
-        private WinForms.NotifyIcon? _notifyIcon;
-        private bool _isExitRequested;
+        // Tray manager
+        private readonly TrayIconManager _trayManager;
 
         public MainWindow()
         {
@@ -50,70 +47,9 @@ namespace recontrol_win
             _powerService = new PowerService(new TerminalService());
             _dispatcher = new CommandDispatcher(_cmdParser, new KeyboardService(), new MouseService(), new TerminalService(), _screenService, _powerService, async (msg) => { try { await _wsClient.SendAsync(msg); } catch { } });
 
-            InitializeTrayIcon();
+            _trayManager = new TrayIconManager(this);
 
             _ = ConnectAsync();
-        }
-
-        private void InitializeTrayIcon()
-        {
-            try
-            {
-                var icon = TryGetAppIcon();
-                _notifyIcon = new WinForms.NotifyIcon
-                {
-                    Icon = icon,
-                    Text = "ReControl",
-                    Visible = true
-                };
-
-                var menu = new WinForms.ContextMenuStrip();
-                menu.Items.Add("Restore", null, (_, __) => RestoreFromTray());
-                menu.Items.Add("Exit", null, (_, __) => ExitFromTray());
-                _notifyIcon.ContextMenuStrip = menu;
-
-                _notifyIcon.DoubleClick += (_, __) => RestoreFromTray();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to initialize tray icon: {ex.Message}");
-            }
-        }
-
-        private static Drawing.Icon? TryGetAppIcon()
-        {
-            try
-            {
-                var exePath = Process.GetCurrentProcess().MainModule!.FileName!;
-                var extracted = Drawing.Icon.ExtractAssociatedIcon(exePath);
-                return extracted;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private void RestoreFromTray()
-        {
-            Dispatcher.Invoke(() =>
-            {
-                ShowInTaskbar = true;
-                Show();
-                if (WindowState == WindowState.Minimized)
-                    WindowState = WindowState.Normal;
-                Activate();
-                Topmost = true;  // bring to front
-                Topmost = false; // reset
-                Focus();
-            });
-        }
-
-        private void ExitFromTray()
-        {
-            _isExitRequested = true;
-            try { if (_notifyIcon is not null) { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } } catch { }
-            Dispatcher.Invoke(() => Close());
         }
 
         private async Task<string?> GetAccessTokenAsync()
@@ -308,18 +244,8 @@ namespace recontrol_win
 
         protected override void OnClosing(CancelEventArgs e)
         {
-            if (!_isExitRequested)
-            {
-                e.Cancel = true;
-                ShowInTaskbar = false;
-                Hide();
-                try
-                {
-                    _notifyIcon?.ShowBalloonTip(1500, "ReControl", "The app is still running here.", WinForms.ToolTipIcon.Info);
-                }
-                catch { }
-                return;
-            }
+            _trayManager.HandleClosing(e);
+            if (e.Cancel) return;
             base.OnClosing(e);
         }
 
@@ -329,7 +255,7 @@ namespace recontrol_win
             try { _wsClient.Dispose(); } catch { }
             try { _auth.Dispose(); } catch { }
             try { _screenService.Dispose(); } catch { }
-            try { if (_notifyIcon is not null) { _notifyIcon.Visible = false; _notifyIcon.Dispose(); } } catch { }
+            try { _trayManager.Dispose(); } catch { }
         }
     }
 }
