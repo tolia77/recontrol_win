@@ -51,10 +51,9 @@ namespace recontrol_win
 
                 if (response.IsSuccessStatusCode)
                 {
-                    // Success -> close dialog and let App open main window
+                    // Signal success to the App and let it open the main window
                     this.DialogResult = true;
-                    this.Close();
-                    return;
+                    return; // do not call Close(); ShowDialog will close after DialogResult
                 }
 
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)

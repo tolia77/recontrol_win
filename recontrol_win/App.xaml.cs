@@ -16,11 +16,15 @@ namespace recontrol_win
             if (tokens is not null && !string.IsNullOrWhiteSpace(tokens.DeviceId) && !string.IsNullOrWhiteSpace(tokens.AccessToken))
             {
                 var mainWindow = new MainWindow();
+                MainWindow = mainWindow; // ensure main window is set
                 mainWindow.Show();
                 return;
             }
 
-            // Show login window first
+            // Temporarily prevent app from auto-shutdown when dialog (treated as MainWindow) closes
+            var originalMode = ShutdownMode;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
             var loginWindow = new LoginWindow();
             // ShowDialog() blocks until the login window is closed
             bool? result = loginWindow.ShowDialog();
@@ -29,10 +33,14 @@ namespace recontrol_win
             {
                 // If login succeeded, open main app window
                 var mainWindow = new MainWindow();
+                MainWindow = mainWindow; // set actual main window
                 mainWindow.Show();
+                ShutdownMode = originalMode; // restore
             }
             else
             {
+                // restore before shutdown (optional)
+                ShutdownMode = originalMode;
                 // If user canceled or login failed → close app
                 Current.Shutdown();
             }
