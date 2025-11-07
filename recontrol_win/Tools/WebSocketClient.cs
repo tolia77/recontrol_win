@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using recontrol_win.Internal;
+using System.Threading;
 
 namespace recontrol_win.Tools
 {
@@ -17,6 +18,9 @@ namespace recontrol_win.Tools
         private readonly Func<Task<string?>> _getAccessToken;
         private readonly Func<Task<bool>> _refreshTokens;
         private ClientWebSocket? _ws;
+
+        // guard to avoid multiple concurrent reconnects
+        private int _reconnecting = 0;
 
         public event Action<string>? MessageReceived;
         public event Action<string>? InfoMessage;
@@ -120,6 +124,12 @@ namespace recontrol_win.Tools
 
                     var text = sb.ToString();
 
+                    // Handle ActionCable control frames like disconnect/ping/welcome
+                    if (TryHandleControlMessage(text))
+                    {
+                        continue; // control message consumed
+                    }
+
                     // Notify raw text; caller may parse JSON
                     MessageReceived?.Invoke(text);
                     InternalLogger.Log($"WebSocketClient.MessageReceived: {text}");
@@ -132,6 +142,100 @@ namespace recontrol_win.Tools
             }
 
             ConnectionStatusChanged?.Invoke(false);
+        }
+
+        private bool TryHandleControlMessage(string text)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("type", out var typeProp) || typeProp.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+
+                var type = typeProp.GetString();
+                switch (type)
+                {
+                    case "ping":
+                        // ignore
+                        return true;
+                    case "welcome":
+                        InfoMessage?.Invoke("WebSocket welcome received");
+                        return true;
+                    case "disconnect":
+                        bool reconnect = root.TryGetProperty("reconnect", out var recProp) && recProp.ValueKind == JsonValueKind.True ? true : (recProp.ValueKind == JsonValueKind.False ? false : (recProp.ValueKind == JsonValueKind.String && bool.TryParse(recProp.GetString(), out var b) && b));
+                        string? reason = null;
+                        if (root.TryGetProperty("reason", out var reasonProp))
+                        {
+                            reason = reasonProp.ValueKind == JsonValueKind.String ? reasonProp.GetString() : reasonProp.GetRawText();
+                        }
+                        InfoMessage?.Invoke($"Server disconnect: reason={reason ?? "unknown"}, reconnect={reconnect}");
+                        InternalLogger.Log($"WebSocketClient: disconnect received. reason={reason}, reconnect={reconnect}");
+
+                        if (reconnect)
+                        {
+                            _ = Task.Run(async () => await HandleReconnectOnDisconnectAsync(reason));
+                        }
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task HandleReconnectOnDisconnectAsync(string? reason)
+        {
+            // Avoid concurrent reconnect storms
+            if (Interlocked.Exchange(ref _reconnecting, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                // Close any existing socket
+                await CloseInternalAsync();
+
+                bool shouldRefresh = false;
+                if (!string.IsNullOrWhiteSpace(reason))
+                {
+                    var r = reason!;
+                    shouldRefresh = r.Contains("unauth", StringComparison.OrdinalIgnoreCase) || r.Contains("token", StringComparison.OrdinalIgnoreCase);
+                }
+
+                if (shouldRefresh)
+                {
+                    try
+                    {
+                        var refreshed = await _refreshTokens();
+                        InfoMessage?.Invoke($"Token refresh on disconnect: {(refreshed ? "ok" : "failed")}");
+                        if (!refreshed)
+                        {
+                            // If refresh fails, do not immediately reconnect to avoid loop.
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        InternalLogger.LogException("WebSocketClient.HandleReconnectOnDisconnectAsync refresh", ex);
+                        return;
+                    }
+                }
+
+                // small backoff
+                await Task.Delay(1000);
+                await ConnectAsync();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _reconnecting, 0);
+            }
         }
 
         public async Task SendObjectAsync(object obj)
@@ -152,12 +256,19 @@ namespace recontrol_win.Tools
         {
             if (_ws != null)
             {
-                if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
+                try
                 {
-                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
+                    if (_ws.State == WebSocketState.Open || _ws.State == WebSocketState.CloseReceived || _ws.State == WebSocketState.CloseSent)
+                    {
+                        await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    InternalLogger.LogException("WebSocketClient.CloseInternalAsync", ex);
                 }
 
-                _ws.Dispose();
+                try { _ws.Dispose(); } catch { }
                 _ws = null;
             }
         }
