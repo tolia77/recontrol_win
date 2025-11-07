@@ -19,7 +19,7 @@ namespace recontrol_win
         private readonly TokenStore _tokenStore = new TokenStore();
         private readonly AuthService _auth = new AuthService();
         private readonly WebSocketClient _wsClient;
-        private readonly Uri _wsUri = new Uri("ws://localhost:3000/cable");
+        private readonly Uri? _wsUri = Uri.TryCreate(Environment.GetEnvironmentVariable("WS_URL"), UriKind.Absolute, out var uri) ? uri : null;
 
         // new: command parser/dispatcher
         private readonly CommandJsonParser _cmdParser;
