@@ -19,7 +19,7 @@ namespace recontrol_win
         private readonly TokenStore _tokenStore = new TokenStore();
         private readonly AuthService _auth = new AuthService();
         private readonly WebSocketClient _wsClient;
-        private readonly Uri? _wsUri = Uri.TryCreate(Environment.GetEnvironmentVariable("WS_URL"), UriKind.Absolute, out var uri) ? uri : null;
+        private readonly Uri _wsUri = new Uri("ws://localhost:3000/cable");
 
         // new: command parser/dispatcher
         private readonly CommandJsonParser _cmdParser;
@@ -29,12 +29,11 @@ namespace recontrol_win
 
         // Tray manager
         private readonly TrayIconManager _trayManager;
+        private LogsWindow? _logsWindow;
 
         public MainWindow()
         {
             InitializeComponent();
-
-            SendPingButton.IsEnabled = false;
 
             _wsClient = new WebSocketClient(_wsUri, GetAccessTokenAsync, async () => await _auth.RefreshTokensAsync());
             _wsClient.ConnectionStatusChanged += OnConnectionStatusChanged;
@@ -72,13 +71,11 @@ namespace recontrol_win
             Dispatcher.Invoke(() =>
             {
                 StatusText.Text = connected ? "Connected" : "Disconnected";
-                SendPingButton.IsEnabled = connected;
             });
         }
 
         private void OnMessageReceived(string text)
         {
-            // try parse as JSON and display message field if present
             Debug.WriteLine($"Received: {text}");
             try
             {
@@ -86,7 +83,6 @@ namespace recontrol_win
 
                 if (doc.RootElement.TryGetProperty("message", out var message))
                 {
-                    // Only treat as structured message when it's a JSON object
                     if (message.ValueKind == JsonValueKind.Object)
                     {
                         var from = "unknown";
@@ -101,7 +97,6 @@ namespace recontrol_win
                         if (message.TryGetProperty("payload", out var payloadProp))
                             payloadRaw = payloadProp.GetRawText();
 
-                        // Capture optional message id (string or number) for correlation BEFORE scheduling async work
                         string? id = null;
                         if (message.TryGetProperty("id", out var idProp))
                         {
@@ -111,10 +106,8 @@ namespace recontrol_win
                                 id = idProp.GetRawText();
                         }
 
-                        // show the message in UI (display raw payload text)
-                        AddMessage(from, command, new { raw = payloadRaw });
+                        InMemoryLog.Add($"{DateTime.Now:HH:mm:ss} {from} {command} {payloadRaw}");
 
-                        // Dispatch command in background to avoid blocking receive loop
                         var capturedCommand = command;
                         var capturedPayloadRaw = payloadRaw;
                         var capturedId = id;
@@ -125,22 +118,9 @@ namespace recontrol_win
                             try
                             {
                                 JsonDocument? payloadDoc = null;
-                                try
-                                {
-                                    payloadDoc = JsonDocument.Parse(capturedPayloadRaw);
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug.WriteLine($"Invalid payload JSON: {ex.Message}");
-                                }
+                                try { payloadDoc = JsonDocument.Parse(capturedPayloadRaw); } catch (Exception ex) { Debug.WriteLine($"Invalid payload JSON: {ex.Message}"); }
 
-                                var request = new BaseRequest
-                                {
-                                    Id = capturedId,
-                                    Command = capturedCommand,
-                                    Payload = payloadDoc?.RootElement ?? default
-                                };
-
+                                var request = new BaseRequest { Id = capturedId, Command = capturedCommand, Payload = payloadDoc?.RootElement ?? default };
                                 var responsePayload = await _dispatcher.HandleRequestAsync(request);
                                 Debug.WriteLine($"Command {capturedCommand} completed. Response: {responsePayload}");
 
@@ -151,22 +131,12 @@ namespace recontrol_win
                                         using var respDoc = JsonDocument.Parse(responsePayload);
                                         if (respDoc.RootElement.TryGetProperty("Status", out _))
                                         {
-                                            var rpcData = new
-                                            {
-                                                command = "message",
-                                                identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }),
-                                                data = responsePayload
-                                            };
+                                            var rpcData = new { command = "message", identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }), data = responsePayload };
                                             await _wsClient.SendObjectAsync(rpcData);
                                         }
                                         else
                                         {
-                                            var channelData = new
-                                            {
-                                                command = "message",
-                                                identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }),
-                                                data = JsonSerializer.Serialize(respDoc.RootElement)
-                                            };
+                                            var channelData = new { command = "message", identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }), data = JsonSerializer.Serialize(respDoc.RootElement) };
                                             await _wsClient.SendObjectAsync(channelData);
                                         }
                                         Debug.WriteLine($"Sent response for command {capturedCommand}");
@@ -188,58 +158,40 @@ namespace recontrol_win
                         return;
                     }
 
-                    // fallback: 'message' exists but is not an object (e.g. ping with number)
-                    AddMessage("server", "raw", new { text });
+                    InMemoryLog.Add($"{DateTime.Now:HH:mm:ss} server raw {text}");
                     return;
                 }
 
-                // fallback: no 'message' property
-                AddMessage("server", "raw", new { text });
+                InMemoryLog.Add($"{DateTime.Now:HH:mm:ss} server raw {text}");
             }
             catch (Exception ex)
             {
-                // include exception message for easier debugging
-                AddMessage("server", "raw", new { text, error = ex.Message });
+                InMemoryLog.Add($"{DateTime.Now:HH:mm:ss} server error {ex.Message}");
             }
         }
 
         private void OnInfoMessage(string info)
         {
-            AddMessage("system", "info", new { msg = info });
+            InMemoryLog.Add($"{DateTime.Now:HH:mm:ss} system info {info}");
         }
 
-        private async void SendPingButton_Click(object sender, RoutedEventArgs e)
+        private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            var payload = new
-            {
-                command = "ping",
-                payload = new { msg = "hello desktop" }
-            };
-
-            var data = new
-            {
-                command = "message",
-                identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }),
-                data = JsonSerializer.Serialize(payload)
-            };
-
-            try
-            {
-                await _wsClient.SendObjectAsync(data);
-            }
-            catch (Exception ex)
-            {
-                AddMessage("system", "error", new { msg = ex.Message });
-            }
+            var wnd = new SettingsWindow { Owner = this };
+            wnd.ShowDialog();
         }
 
-        private void AddMessage(string from, string command, object payload)
+        private void LogsButton_Click(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() =>
+            if (_logsWindow == null || !_logsWindow.IsVisible)
             {
-                var tb = new TextBlock { Text = $"{from}: {command} - {JsonSerializer.Serialize(payload)}", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2) };
-                MessagesPanel.Children.Insert(0, tb);
-            });
+                _logsWindow = new LogsWindow { Owner = this };
+                _logsWindow.Show();
+            }
+            else
+            {
+                _logsWindow.Activate();
+            }
         }
 
         protected override void OnClosing(CancelEventArgs e)
