@@ -1,5 +1,6 @@
 using recontrol_win.Internal;
 using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace recontrol_win.Commands
 {
@@ -21,11 +22,22 @@ namespace recontrol_win.Commands
                 return Task.FromResult<object?>("already_running");
             }
 
+            // Track previous frame hash to avoid sending identical frames.
+            byte[]? previousHash = null;
+
             _service.Start(bytes =>
             {
                 try
                 {
-                    // send frame as base64 JSON message without awaiting
+                    // Compute hash of current frame (static helper avoids lifetime issues)
+                    var currentHash = MD5.HashData(bytes);
+                    if (previousHash != null && AreEqual(previousHash, currentHash))
+                    {
+                        InternalLogger.Log("ScreenStartCommand: duplicate frame skipped");
+                        return;
+                    }
+                    previousHash = currentHash;
+
                     var payload = new
                     {
                         command = "screen.frame",
@@ -43,10 +55,23 @@ namespace recontrol_win.Commands
                     var json = JsonSerializer.Serialize(data);
                     _ = _sender(json);
                 }
-                catch { }
-            }, 30, 100); // hardcoded 30% quality, 200ms interval
+                catch (Exception ex)
+                {
+                    InternalLogger.LogException("ScreenStartCommand.FrameSend", ex);
+                }
+            }, 30, 100); // hardcoded 30% quality, 100ms interval
 
             return Task.FromResult<object?>("started");
+        }
+
+        private static bool AreEqual(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+            return true;
         }
     }
 
