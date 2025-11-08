@@ -26,6 +26,9 @@ namespace recontrol_win.Internal
         // Pool for MemoryStream buffers - simple reuse to avoid reallocations
         private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
 
+        // Track how many frames have been sent since Start() to allow redundancy on startup
+        private int _framesSentSinceStart = 0;
+
         public bool IsRunning => _streamTask != null && !_streamTask.IsCompleted;
 
         /// <summary>
@@ -39,6 +42,9 @@ namespace recontrol_win.Internal
             InternalLogger.Log($"ScreenService.Start called: quality={qualityPercent}, intervalMs={intervalMs}, tileSize={tileSize}, downscale={downscale}");
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
+
+            // Reset startup frame counter
+            _framesSentSinceStart = 0;
 
             // Encoder task consumes bitmaps from _captureQueue, performs tile diff and encoding
             _streamTask = Task.Run(async () =>
@@ -70,19 +76,25 @@ namespace recontrol_win.Internal
                                 try
                                 {
                                     var regions = ComputeDirtyRegions(previous, toProcess, tileSize);
-                                    if (regions.Count == 0)
+
+                                    var outputs = new List<FrameRegion>();
+
+                                    // Ensure redundancy at startup: send the second frame as a full-frame too,
+                                    // even if there are no changes, to cover cases where the first frame was dropped.
+                                    bool forceFullFrameThisIteration = (_framesSentSinceStart == 1);
+
+                                    if (regions.Count == 0 && !forceFullFrameThisIteration)
                                     {
-                                        // nothing changed
+                                        // nothing changed and not forcing a redundant full frame
                                         toProcess.Dispose();
                                     }
                                     else
                                     {
-                                        var outputs = new List<FrameRegion>();
-
-                                        // If a single region is large (>50% area) send full frame instead
+                                        // If forcing full frame on startup OR a single region is large (>50% area) send full frame instead
                                         var totalArea = toProcess.Width * toProcess.Height;
                                         var changedArea = regions.Sum(r => r.Width * r.Height);
-                                        if (changedArea * 2 >= totalArea)
+
+                                        if (forceFullFrameThisIteration || (changedArea * 2 >= totalArea))
                                         {
                                             // Encode full frame
                                             var jpg = EncodeJpeg(toProcess, qualityPercent);
@@ -130,6 +142,7 @@ namespace recontrol_win.Internal
                                         if (outputs.Count > 0)
                                         {
                                             onFrame(new FrameBatch(outputs));
+                                            _framesSentSinceStart++;
                                         }
 
                                         // previous becomes this processed bitmap (keep for next diff)
