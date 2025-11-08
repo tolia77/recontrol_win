@@ -1,6 +1,7 @@
 using recontrol_win.Internal;
 using System.Text.Json;
 using System.Security.Cryptography;
+using System.Buffers;
 
 namespace recontrol_win.Commands
 {
@@ -8,6 +9,12 @@ namespace recontrol_win.Commands
     {
         private readonly ScreenService _service;
         private readonly Func<string, Task> _sender;
+
+        // track last sent hash to avoid duplicates
+        private ulong? _previousHash;
+
+        // simple backpressure counter
+        private int _pendingSends = 0;
 
         public ScreenStartCommand(ScreenService service, Func<string, Task> sender)
         {
@@ -22,56 +29,109 @@ namespace recontrol_win.Commands
                 return Task.FromResult<object?>("already_running");
             }
 
-            // Track previous frame hash to avoid sending identical frames.
-            byte[]? previousHash = null;
+            _previousHash = null;
 
-            _service.Start(bytes =>
+            _service.Start(batch =>
             {
                 try
                 {
-                    // Compute hash of current frame (static helper avoids lifetime issues)
-                    var currentHash = MD5.HashData(bytes);
-                    if (previousHash != null && AreEqual(previousHash, currentHash))
+                    if (batch == null || batch.Regions == null || batch.Regions.Count == 0)
+                        return;
+
+                    // Compute combined hash for the batch
+                    var currentHash = ComputeCombinedHash(batch.Regions);
+
+                    if (_previousHash != null && _previousHash.Value == currentHash)
                     {
-                        InternalLogger.Log("ScreenStartCommand: duplicate frame skipped");
+                        InternalLogger.Log("ScreenStartCommand: duplicate batch skipped");
                         return;
                     }
-                    previousHash = currentHash;
 
-                    var payload = new
+                    _previousHash = currentHash;
+
+                    // Build payload with all regions in a single message
+                    var regionList = batch.Regions.Select(r => new
                     {
-                        command = "screen.frame",
+                        image = Convert.ToBase64String(r.Jpeg),
+                        isFull = r.IsFullFrame,
+                        x = r.X,
+                        y = r.Y,
+                        width = r.Width,
+                        height = r.Height
+                    }).ToList();
+
+                    var payloadObj = new
+                    {
+                        command = "screen.frame_batch",
                         payload = new
                         {
-                            image = Convert.ToBase64String(bytes)
+                            regions = regionList
                         }
                     };
-                    var data = new
+
+                    var dataObj = new
                     {
                         command = "message",
                         identifier = JsonSerializer.Serialize(new { channel = "CommandChannel" }),
-                        data = JsonSerializer.Serialize(payload)
+                        data = JsonSerializer.Serialize(payloadObj)
                     };
-                    var json = JsonSerializer.Serialize(data);
-                    _ = _sender(json);
+
+                    Interlocked.Increment(ref _pendingSends);
+                    var sendTask = _sender(JsonSerializer.Serialize(dataObj));
+                    sendTask.ContinueWith(t => Interlocked.Decrement(ref _pendingSends));
+
+                    if (_pendingSends > 4)
+                    {
+                        InternalLogger.Log($"ScreenStartCommand: high pending sends={_pendingSends}, applying backpressure");
+                    }
                 }
                 catch (Exception ex)
                 {
                     InternalLogger.LogException("ScreenStartCommand.FrameSend", ex);
                 }
-            }, 30, 100); // hardcoded 30% quality, 100ms interval
+            }, qualityPercent: 30, intervalMs: 100);
 
             return Task.FromResult<object?>("started");
         }
 
-        private static bool AreEqual(byte[] a, byte[] b)
+        private static ulong ComputeFnv1A64(byte[] data)
         {
-            if (a.Length != b.Length) return false;
-            for (int i = 0; i < a.Length; i++)
+            const ulong fnvOffset = 1469598103934665603UL;
+            const ulong fnvPrime = 1099511628211UL;
+            ulong hash = fnvOffset;
+            for (int i = 0; i < data.Length; i++)
             {
-                if (a[i] != b[i]) return false;
+                hash ^= data[i];
+                hash *= fnvPrime;
             }
-            return true;
+            return hash;
+        }
+
+        private static ulong ComputeCombinedHash(List<FrameRegion> regions)
+        {
+            const ulong fnvOffset = 1469598103934665603UL;
+            const ulong fnvPrime = 1099511628211UL;
+            ulong combined = fnvOffset;
+            foreach (var r in regions)
+            {
+                // mix image bytes
+                var h = ComputeFnv1A64(r.Jpeg);
+                combined ^= h;
+                combined *= fnvPrime;
+
+                // mix metadata
+                combined ^= (uint)r.X;
+                combined *= fnvPrime;
+                combined ^= (uint)r.Y;
+                combined *= fnvPrime;
+                combined ^= (uint)r.Width;
+                combined *= fnvPrime;
+                combined ^= (uint)r.Height;
+                combined *= fnvPrime;
+                combined ^= r.IsFullFrame ? 1UL : 0UL;
+                combined *= fnvPrime;
+            }
+            return combined;
         }
     }
 
