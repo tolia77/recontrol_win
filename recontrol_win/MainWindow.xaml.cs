@@ -19,7 +19,7 @@ namespace recontrol_win
         private readonly TokenStore _tokenStore = new TokenStore();
         private readonly AuthService _auth = new AuthService();
         private readonly WebSocketClient _wsClient;
-        private readonly Uri _wsUri; // now loaded from .env (WS_URL)
+        private readonly Uri _wsUri; // loaded from .env / environment vars
 
         // new: command parser/dispatcher
         private readonly CommandJsonParser _cmdParser;
@@ -36,7 +36,28 @@ namespace recontrol_win
             InitializeComponent();
 
             var wsUrl = Environment.GetEnvironmentVariable("WS_URL");
-            _wsUri = new Uri(wsUrl);
+            var env = Environment.GetEnvironmentVariable("ENVIRONMENT");
+            if (string.Equals(env, "dev", StringComparison.OrdinalIgnoreCase))
+            {
+                var wsDev = Environment.GetEnvironmentVariable("WS_URL_DEV");
+                if (!string.IsNullOrWhiteSpace(wsDev))
+                {
+                    wsUrl = wsDev;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(wsUrl))
+            {
+                wsUrl = "ws://localhost:3000/cable"; // fallback
+            }
+            try
+            {
+                _wsUri = new Uri(wsUrl);
+            }
+            catch
+            {
+                _wsUri = new Uri("ws://localhost:3000/cable");
+            }
 
             _wsClient = new WebSocketClient(_wsUri, GetAccessTokenAsync, async () => await _auth.RefreshTokensAsync());
             _wsClient.ConnectionStatusChanged += OnConnectionStatusChanged;

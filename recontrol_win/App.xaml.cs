@@ -10,6 +10,16 @@ namespace recontrol_win
         {
             DotNetEnv.Env.Load();
 
+            // Choose API base URL depending on environment
+            var env = System.Environment.GetEnvironmentVariable("ENVIRONMENT");
+            if (string.Equals(env, "dev", System.StringComparison.OrdinalIgnoreCase))
+            {
+                var apiDev = System.Environment.GetEnvironmentVariable("API_BASE_URL_DEV");
+                if (!string.IsNullOrWhiteSpace(apiDev))
+                {
+                    System.Environment.SetEnvironmentVariable("API_BASE_URL", apiDev);
+                }
+            }
 
             var tokenStore = new TokenStore();
             var tokens = tokenStore.Load();

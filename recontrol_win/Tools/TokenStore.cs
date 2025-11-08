@@ -23,7 +23,9 @@ namespace recontrol_win.Tools
         public TokenStore()
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            _folderPath = Path.Combine(appData, "recontrol_win");
+            var env = Environment.GetEnvironmentVariable("ENVIRONMENT");
+            var folderName = string.Equals(env, "dev", StringComparison.OrdinalIgnoreCase) ? "recontrol_win_dev" : "recontrol_win";
+            _folderPath = Path.Combine(appData, folderName);
             _filePath = Path.Combine(_folderPath, "tokens.dat");
         }
 

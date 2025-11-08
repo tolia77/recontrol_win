@@ -13,7 +13,9 @@ namespace recontrol_win.Internal
         {
             try
             {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "recontrol_win");
+                var env = Environment.GetEnvironmentVariable("ENVIRONMENT");
+                var folderName = string.Equals(env, "dev", StringComparison.OrdinalIgnoreCase) ? "recontrol_win_dev" : "recontrol_win";
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), folderName);
                 Directory.CreateDirectory(dir);
                 _logPath = Path.Combine(dir, "internal.log");
             }
