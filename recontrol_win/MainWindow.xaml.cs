@@ -31,6 +31,8 @@ namespace recontrol_win
         private readonly TrayIconManager _trayManager;
         private LogsWindow? _logsWindow;
 
+        private int _activeConnectOperations = 0; // track ongoing connect attempts for spinner visibility
+
         public MainWindow()
         {
             InitializeComponent();
@@ -87,7 +89,28 @@ namespace recontrol_win
 
         private async Task ConnectAsync()
         {
-            await _wsClient.ConnectAsync();
+            try
+            {
+                System.Threading.Interlocked.Increment(ref _activeConnectOperations);
+                UpdateSpinner();
+                await _wsClient.ConnectAsync();
+            }
+            finally
+            {
+                System.Threading.Interlocked.Decrement(ref _activeConnectOperations);
+                UpdateSpinner();
+            }
+        }
+
+        private void UpdateSpinner()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (ConnectingSpinner != null)
+                {
+                    ConnectingSpinner.Visibility = _activeConnectOperations > 0 ? Visibility.Visible : Visibility.Collapsed;
+                }
+            });
         }
 
         private void OnConnectionStatusChanged(bool connected)
@@ -95,6 +118,12 @@ namespace recontrol_win
             Dispatcher.Invoke(() =>
             {
                 StatusText.Text = connected ? "Connected" : "Disconnected";
+                // Hide spinner if connected (even if counter mis-synced)
+                if (connected)
+                {
+                    ConnectingSpinner.Visibility = Visibility.Collapsed;
+                    _activeConnectOperations = 0;
+                }
             });
         }
 
