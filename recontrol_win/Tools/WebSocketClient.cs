@@ -181,6 +181,14 @@ namespace recontrol_win.Tools
                         InfoMessage?.Invoke($"Server disconnect: reason={reason ?? "unknown"}, reconnect={reconnect}");
                         InternalLogger.Log($"WebSocketClient: disconnect received. reason={reason}, reconnect={reconnect}");
 
+                        // If server indicates unauthorized/token issue, force refresh path regardless of reconnect flag
+                        bool unauthorized = !string.IsNullOrWhiteSpace(reason) && (reason.Contains("unauth", StringComparison.OrdinalIgnoreCase) || reason.Contains("token", StringComparison.OrdinalIgnoreCase));
+                        if (unauthorized)
+                        {
+                            _ = Task.Run(async () => await HandleReconnectOnDisconnectAsync(reason));
+                            return true;
+                        }
+
                         if (reconnect)
                         {
                             _ = Task.Run(async () => await HandleReconnectOnDisconnectAsync(reason));
