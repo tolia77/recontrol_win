@@ -7,7 +7,7 @@
         Title="Login" Height="400" Width="320"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        Background="#FAFAFA">
+        Background="{DynamicResource BackgroundBrush}">
 
     <Grid Margin="20">
         <Grid.RowDefinitions>
@@ -21,47 +21,50 @@
                    FontSize="24"
                    FontWeight="Bold"
                    HorizontalAlignment="Center"
-                   Margin="0,20,0,30"/>
+                   Margin="0,20,0,30"
+                   Foreground="{DynamicResource PrimaryBrush}"/>
 
         <!-- Form Fields -->
         <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,40">
             <!-- Error label (hidden by default) -->
             <TextBlock x:Name="ErrorLabel"
                        Text="Invalid email or password"
-                       Foreground="Red"
+                       Foreground="{DynamicResource ErrorBrush}"
                        FontWeight="SemiBold"
                        Margin="0,0,0,10"
                        Visibility="Collapsed"
                        HorizontalAlignment="Center"/>
 
-            <TextBlock Text="Email" Margin="5,0,0,3" FontWeight="SemiBold"/>
+            <TextBlock Text="Email" Margin="5,0,0,3" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
             <TextBox x:Name="EmailTextBox"
                      Height="30"
                      Padding="5"
-                     Margin="0,0,0,10"/>
+                     Margin="0,0,0,10"
+                     Background="{DynamicResource TertiaryBrush}"
+                     Foreground="{DynamicResource TextBrush}"
+                     BorderBrush="{DynamicResource LightGrayBrush}"/>
 
-            <TextBlock Text="Password" Margin="5,0,0,3" FontWeight="SemiBold"/>
+            <TextBlock Text="Password" Margin="5,0,0,3" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
             <PasswordBox x:Name="PasswordBox"
                          Height="30"
                          Padding="5"
-                         Margin="0,0,0,20"/>
+                         Margin="0,0,0,20"
+                         Background="{DynamicResource TertiaryBrush}"
+                         Foreground="{DynamicResource TextBrush}"
+                         BorderBrush="{DynamicResource LightGrayBrush}"/>
 
             <Button x:Name="LoginButton"
                     Content="Log In"
                     Height="35"
-                    Background="#0078D7"
-                    Foreground="White"
-                    FontWeight="Bold"
-                    BorderThickness="0"
-                    Cursor="Hand"
+                    Style="{DynamicResource PrimaryButton}"
                     Click="LoginButton_Click"/>
         </StackPanel>
 
         <!-- Signup link -->
         <StackPanel Grid.Row="2" HorizontalAlignment="Center" Orientation="Horizontal">
-            <TextBlock Text="Don't have an account? " />
-            <TextBlock>
-                <Hyperlink Click="SignUpLink_Click" Foreground="#0078D7" Cursor="Hand">
+            <TextBlock Text="Don't have an account? " Foreground="{DynamicResource DarkGrayBrush}"/>
+            <TextBlock Foreground="{DynamicResource SecondaryBrush}">
+                <Hyperlink Click="SignUpLink_Click" Foreground="{DynamicResource SecondaryBrush}" Cursor="Hand">
                     Sign up
                 </Hyperlink>
             </TextBlock>
